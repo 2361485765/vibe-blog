@@ -53,10 +53,19 @@ class ReviewerAgent:
             )
             
             result = json.loads(response)
+            
+            # 基于规则二次校验
+            issues = result.get("issues", [])
+            score = result.get("score", 80)
+            has_high_issue = any(i.get('severity') == 'high' for i in issues)
+            
+            # high 问题直接不通过，或分数低于 91 不通过
+            approved = result.get("approved", True) and not has_high_issue and score >= 91
+            
             return {
-                "score": result.get("score", 80),
-                "approved": result.get("approved", True),
-                "issues": result.get("issues", []),
+                "score": score,
+                "approved": approved,
+                "issues": issues,
                 "summary": result.get("summary", "")
             }
             
