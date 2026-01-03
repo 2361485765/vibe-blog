@@ -313,8 +313,7 @@ Banana Vibe Blog 采用多 Agent 协作架构，各个 Agent 分工明确，协�
 
 1. **克隆代码仓库**
 ```bash
-git clone https://github.com/Anionex/banana-blog
-cd banana-blog
+git clone https://github.com/lailoo/Banana-Vibe-Blog
 ```
 
 2. **安装依赖**
@@ -472,9 +471,9 @@ banana-blog/
 ## 🤝 贡献指南
 
 欢迎通过
-[Issue](https://github.com/Anionex/banana-blog/issues)
+[Issue](https://github.com/lailoo/Banana-Vibe-Blog/issues)
 和
-[Pull Request](https://github.com/Anionex/banana-blog/pulls)
+[Pull Request](https://github.com/lailoo/Banana-Vibe-Blog/pulls)
 为本项目贡献力量！
 
 
