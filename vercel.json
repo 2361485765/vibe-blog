@@ -3,5 +3,8 @@
   "framework": "python",
   "python": {
     "version": "3.11"
+  },
+  "env": {
+    "PYTHON_VERSION": "3.11"
   }
 }
