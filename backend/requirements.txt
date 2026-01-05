@@ -4,6 +4,7 @@
 # ============ Web 框架 ============
 flask>=3.0.0
 flask-cors>=4.0.0
+gunicorn>=21.0.0
 
 # LLM 集成
 langchain>=1.0.0
