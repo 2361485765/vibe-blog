@@ -8,6 +8,7 @@ import os
 from datetime import datetime
 from typing import Dict, Any, Optional, Callable
 from queue import Queue
+from contextvars import copy_context
 
 from .generator import BlogGenerator
 from .schemas.state import create_initial_state
@@ -104,8 +105,27 @@ class BlogService:
             app: Flask 应用实例
         """
         def run_in_thread():
-            if app:
-                with app.app_context():
+            # 导入 task_id_context
+            from app import task_id_context
+            
+            # 在线程中设置 task_id 上下文
+            token = task_id_context.set(task_id)
+            
+            try:
+                if app:
+                    with app.app_context():
+                        self._run_generation(
+                            task_id=task_id,
+                            topic=topic,
+                            article_type=article_type,
+                            target_audience=target_audience,
+                            target_length=target_length,
+                            source_material=source_material,
+                            document_ids=document_ids,
+                            document_knowledge=document_knowledge,
+                            task_manager=task_manager
+                        )
+                else:
                     self._run_generation(
                         task_id=task_id,
                         topic=topic,
@@ -117,20 +137,13 @@ class BlogService:
                         document_knowledge=document_knowledge,
                         task_manager=task_manager
                     )
-            else:
-                self._run_generation(
-                    task_id=task_id,
-                    topic=topic,
-                    article_type=article_type,
-                    target_audience=target_audience,
-                    target_length=target_length,
-                    source_material=source_material,
-                    document_ids=document_ids,
-                    document_knowledge=document_knowledge,
-                    task_manager=task_manager
-                )
+            finally:
+                # 重置上下文
+                task_id_context.reset(token)
         
-        thread = threading.Thread(target=run_in_thread, daemon=True)
+        # 使用 copy_context 确保线程继承当前上下文
+        ctx = copy_context()
+        thread = threading.Thread(target=ctx.run, args=(run_in_thread,), daemon=True)
         thread.start()
     
     def _run_generation(

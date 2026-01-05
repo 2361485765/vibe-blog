@@ -4,6 +4,7 @@ vibe-blog 后端应用入口
 """
 import os
 import logging
+from contextvars import ContextVar
 from dotenv import load_dotenv
 
 # 加载 .env 文件
@@ -24,15 +25,33 @@ from services.database_service import get_db_service, init_db_service
 from services.file_parser_service import get_file_parser, init_file_parser
 from services.knowledge_service import get_knowledge_service, init_knowledge_service
 
+# 创建任务 ID 上下文变量
+task_id_context: ContextVar[str] = ContextVar('task_id', default='')
+
+# 自定义日志格式化器，添加任务 ID
+class TaskIdFilter(logging.Filter):
+    def filter(self, record):
+        task_id = task_id_context.get()
+        if task_id:
+            record.task_id = f"[{task_id}]"
+        else:
+            record.task_id = ""
+        return True
+
 # 配置日志
-log_format = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+log_format = logging.Formatter('%(asctime)s %(task_id)s - %(name)s - %(levelname)s - %(message)s')
 
 root_logger = logging.getLogger()
 root_logger.setLevel(logging.INFO)
 
+# 添加任务 ID 过滤器
+task_id_filter = TaskIdFilter()
+root_logger.addFilter(task_id_filter)
+
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.INFO)
 console_handler.setFormatter(log_format)
+console_handler.addFilter(task_id_filter)
 root_logger.addHandler(console_handler)
 
 # 尝试配置文件日志，如果失败则跳过（Vercel 环境是只读的）
