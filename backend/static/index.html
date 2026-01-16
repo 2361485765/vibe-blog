@@ -1657,6 +1657,21 @@
             // 处理 ---# 紧跟的情况（没有换行）
             processedMarkdown = processedMarkdown.replace(/^(-{3,})([#])/gm, '$1\n\n$2');
             
+            // 保护数学公式，避免被 Markdown 解析器破坏
+            const mathPlaceholders = [];
+            // 保护块级公式 $$...$$
+            processedMarkdown = processedMarkdown.replace(/\$\$([\s\S]*?)\$\$/g, (match, formula) => {
+                const id = `MATH_BLOCK_${mathPlaceholders.length}`;
+                mathPlaceholders.push({ id, formula: formula.trim(), display: true });
+                return `<div class="math-placeholder" data-id="${id}"></div>`;
+            });
+            // 保护行内公式 $...$（但不匹配 $$）
+            processedMarkdown = processedMarkdown.replace(/\$([^\$\n]+?)\$/g, (match, formula) => {
+                const id = `MATH_INLINE_${mathPlaceholders.length}`;
+                mathPlaceholders.push({ id, formula: formula.trim(), display: false });
+                return `<span class="math-placeholder" data-id="${id}"></span>`;
+            });
+            
             // 配置 marked
             marked.setOptions({
                 highlight: function(code, lang) {
@@ -1674,6 +1689,23 @@
             // 渲染 Markdown
             const container = document.getElementById('markdownContent');
             container.innerHTML = marked.parse(processedMarkdown);
+            
+            // 恢复并渲染数学公式
+            mathPlaceholders.forEach(({ id, formula, display }) => {
+                const placeholder = container.querySelector(`[data-id="${id}"]`);
+                if (placeholder && typeof katex !== 'undefined') {
+                    try {
+                        katex.render(formula, placeholder, {
+                            displayMode: display,
+                            throwOnError: false,
+                            trust: true
+                        });
+                    } catch (e) {
+                        console.warn('KaTeX 渲染失败:', formula, e);
+                        placeholder.textContent = display ? `$$${formula}$$` : `$${formula}$`;
+                    }
+                }
+            });
             
             // 渲染 KaTeX 数学公式
             if (typeof renderMathInElement !== 'undefined') {
