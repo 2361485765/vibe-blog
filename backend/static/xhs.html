@@ -390,6 +390,78 @@
         .current-stage { font-size: 14px; color: #666; }
         .time-estimate { font-size: 13px; color: #999; }
         
+        /* 讲解视频按钮样式 */
+        .explanation-video-section {
+            margin-top: 24px;
+            padding: 20px;
+            background: linear-gradient(135deg, rgba(78, 205, 196, 0.1), rgba(68, 160, 141, 0.1));
+            border-radius: 16px;
+            border: 1px solid rgba(78, 205, 196, 0.3);
+        }
+        .explanation-video-btn {
+            padding: 14px 28px;
+            background: linear-gradient(135deg, #4ECDC4, #44A08D);
+            border: none;
+            border-radius: 12px;
+            color: #fff;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .explanation-video-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(78, 205, 196, 0.3);
+        }
+        .explanation-video-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        .video-progress-container {
+            display: none;
+            margin-top: 16px;
+            padding: 16px;
+            background: #fff;
+            border-radius: 12px;
+            border: 1px solid #e0e0e0;
+        }
+        .video-progress-container.show { display: block; }
+        .video-progress-bar {
+            height: 8px;
+            background: #e8e8e8;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 8px;
+        }
+        .video-progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4ECDC4, #44A08D);
+            border-radius: 4px;
+            width: 0%;
+            transition: width 0.5s ease;
+        }
+        .video-progress-text {
+            font-size: 13px;
+            color: #666;
+            text-align: center;
+        }
+        .video-result-container {
+            display: none;
+            margin-top: 16px;
+        }
+        .video-result-container.show { display: block; }
+        .video-result-container video {
+            width: 100%;
+            max-width: 400px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        }
+        
         /* 图片占位符 */
         .image-card.loading {
             background: #f5f5f5;
@@ -555,6 +627,86 @@
                 
                 <h3 style="margin-top: 16px;">🏷️ 推荐标签</h3>
                 <div class="tags-list" id="tagsList"></div>
+            </div>
+            
+            <!-- 讲解视频生成区域 -->
+            <div class="explanation-video-section" id="explanationVideoSection">
+                <h3 style="margin-bottom: 12px; color: #333;">🎬 生成讲解视频</h3>
+                <p style="color: #666; font-size: 14px; margin-bottom: 16px;">
+                    将所有图片合成为一个完整的动画讲解视频，适合发布到小红书、抖音等平台
+                </p>
+                <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                    <select id="videoModelSelect" style="
+                        padding: 10px 16px;
+                        border: 1px solid #e0e0e0;
+                        border-radius: 8px;
+                        font-size: 14px;
+                        background: #fff;
+                    ">
+                        <option value="sora2" selected>🎬 Sora2 (推荐)</option>
+                        <option value="veo3">🎥 Veo3</option>
+                    </select>
+                    <select id="videoStyleSelect" style="
+                        padding: 10px 16px;
+                        border: 1px solid #e0e0e0;
+                        border-radius: 8px;
+                        font-size: 14px;
+                        background: #fff;
+                    ">
+                        <option value="ghibli_summer">🌻 宫崎骏夏日风</option>
+                        <option value="cartoon">🎨 卡通活泼风</option>
+                        <option value="scientific">🔬 科普专业风</option>
+                    </select>
+                    <select id="videoDurationSelect" style="
+                        padding: 10px 16px;
+                        border: 1px solid #e0e0e0;
+                        border-radius: 8px;
+                        font-size: 14px;
+                        background: #fff;
+                    ">
+                        <option value="30">30 秒</option>
+                        <option value="60" selected>60 秒</option>
+                        <option value="90">90 秒</option>
+                        <option value="120">2 分钟</option>
+                    </select>
+                    <button class="explanation-video-btn" id="generateVideoBtn" onclick="generateExplanationVideo()">
+                        🎬 生成讲解视频
+                    </button>
+                </div>
+                
+                <!-- 视频生成进度 -->
+                <div class="video-progress-container" id="videoProgressContainer">
+                    <div class="video-progress-bar">
+                        <div class="video-progress-fill" id="videoProgressFill"></div>
+                    </div>
+                    <div class="video-progress-text" id="videoProgressText">准备中...</div>
+                </div>
+                
+                <!-- 视频结果展示 -->
+                <div class="video-result-container" id="videoResultContainer">
+                    <h4 style="margin-bottom: 12px; color: #333;">✅ 讲解视频已生成</h4>
+                    <video id="explanationVideo" controls autoplay loop muted playsinline></video>
+                    <div style="margin-top: 12px; display: flex; gap: 12px;">
+                        <button onclick="downloadExplanationVideo()" style="
+                            padding: 10px 20px;
+                            background: #fff;
+                            border: 1px solid #4ECDC4;
+                            border-radius: 8px;
+                            color: #4ECDC4;
+                            font-size: 14px;
+                            cursor: pointer;
+                        ">📥 下载视频</button>
+                        <button onclick="copyVideoUrl()" style="
+                            padding: 10px 20px;
+                            background: #fff;
+                            border: 1px solid #4ECDC4;
+                            border-radius: 8px;
+                            color: #4ECDC4;
+                            font-size: 14px;
+                            cursor: pointer;
+                        ">📋 复制链接</button>
+                    </div>
+                </div>
             </div>
             
             <!-- 发布按钮区域 -->
@@ -1726,6 +1878,156 @@
                     videoContainer.style.display = 'block';
                 }
             }
+        }
+        
+        // ========== 讲解视频生成 ==========
+        let explanationVideoUrl = null;
+        
+        async function generateExplanationVideo() {
+            if (!currentResult || !currentResult.image_urls || currentResult.image_urls.length === 0) {
+                alert('请先生成小红书图片');
+                return;
+            }
+            
+            const videoModel = document.getElementById('videoModelSelect').value;
+            const style = document.getElementById('videoStyleSelect').value;
+            const duration = parseInt(document.getElementById('videoDurationSelect').value);
+            
+            // 获取每张图片对应的文案
+            const scripts = [];
+            if (stageDetails.outline && stageDetails.outline.pages) {
+                stageDetails.outline.pages.forEach(p => {
+                    scripts.push(p.content || '');
+                });
+            } else if (currentResult.pages) {
+                currentResult.pages.forEach(p => {
+                    scripts.push(p.content || '');
+                });
+            } else {
+                // 如果没有文案，使用空字符串
+                currentResult.image_urls.forEach(() => scripts.push(''));
+            }
+            
+            // 确保 scripts 数量与图片数量一致
+            while (scripts.length < currentResult.image_urls.length) {
+                scripts.push('');
+            }
+            
+            // 显示进度
+            const btn = document.getElementById('generateVideoBtn');
+            const progressContainer = document.getElementById('videoProgressContainer');
+            const progressFill = document.getElementById('videoProgressFill');
+            const progressText = document.getElementById('videoProgressText');
+            const resultContainer = document.getElementById('videoResultContainer');
+            
+            btn.disabled = true;
+            btn.innerHTML = '⏳ 生成中...';
+            progressContainer.classList.add('show');
+            resultContainer.classList.remove('show');
+            progressFill.style.width = '0%';
+            progressText.textContent = '准备生成讲解视频...';
+            
+            try {
+                // 模拟进度更新（因为 API 是同步的）
+                let progress = 0;
+                const progressInterval = setInterval(() => {
+                    if (progress < 90) {
+                        progress += Math.random() * 5;
+                        progressFill.style.width = `${Math.min(progress, 90)}%`;
+                        
+                        if (progress < 20) {
+                            progressText.textContent = '创建时间线...';
+                        } else if (progress < 40) {
+                            progressText.textContent = '生成动画指令...';
+                        } else if (progress < 80) {
+                            progressText.textContent = `生成视频片段 (${Math.floor(progress / 20)}/${currentResult.image_urls.length})...`;
+                        } else {
+                            progressText.textContent = '合成最终视频...';
+                        }
+                    }
+                }, 2000);
+                
+                const response = await fetch('/api/xhs/explanation-video', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        images: currentResult.image_urls,
+                        scripts: scripts,
+                        style: style,
+                        target_duration: duration,
+                        video_model: videoModel
+                    })
+                });
+                
+                clearInterval(progressInterval);
+                
+                const result = await response.json();
+                
+                if (result.success && result.video_url) {
+                    explanationVideoUrl = result.video_url;
+                    
+                    // 显示成功
+                    progressFill.style.width = '100%';
+                    progressText.textContent = '✅ 视频生成完成！';
+                    
+                    // 显示视频
+                    const video = document.getElementById('explanationVideo');
+                    video.src = explanationVideoUrl;
+                    resultContainer.classList.add('show');
+                    
+                    // 2秒后隐藏进度条
+                    setTimeout(() => {
+                        progressContainer.classList.remove('show');
+                    }, 2000);
+                } else {
+                    throw new Error(result.error || '视频生成失败');
+                }
+                
+            } catch (error) {
+                console.error('讲解视频生成失败:', error);
+                progressFill.style.width = '100%';
+                progressFill.style.background = '#ff4d4f';
+                progressText.textContent = '❌ 生成失败: ' + error.message;
+                
+                setTimeout(() => {
+                    progressContainer.classList.remove('show');
+                    progressFill.style.background = '';
+                }, 5000);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '🎬 生成讲解视频';
+            }
+        }
+        
+        function downloadExplanationVideo() {
+            if (!explanationVideoUrl) {
+                alert('没有可下载的视频');
+                return;
+            }
+            
+            // 创建下载链接
+            const a = document.createElement('a');
+            a.href = explanationVideoUrl;
+            a.download = 'explanation_video.mp4';
+            a.target = '_blank';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+        
+        function copyVideoUrl() {
+            if (!explanationVideoUrl) {
+                alert('没有可复制的链接');
+                return;
+            }
+            
+            navigator.clipboard.writeText(explanationVideoUrl).then(() => {
+                alert('✅ 视频链接已复制到剪贴板');
+            }).catch(err => {
+                console.error('复制失败:', err);
+                // 降级方案
+                prompt('请手动复制视频链接:', explanationVideoUrl);
+            });
         }
         
         // 页面加载完成后，检查 URL 参数

@@ -1055,6 +1055,63 @@ class XHSService:
             })
 
 
+    async def generate_explanation_video(
+        self,
+        images: List[str],
+        scripts: List[str],
+        style: str = "ghibli_summer",
+        target_duration: float = 60.0,
+        bgm_url: Optional[str] = None,
+        progress_callback: Optional[Callable[[int, str], None]] = None,
+        video_model: str = "sora2"  # 视频模型: sora2 或 veo3
+    ) -> Optional[str]:
+        """
+        从图片序列生成讲解视频
+        
+        Args:
+            images: 小红书图片 URL 列表
+            scripts: 每张图片的文案列表
+            style: 动画风格（ghibli_summer/cartoon/scientific）
+            target_duration: 目标总时长（秒）
+            bgm_url: 背景音乐 URL（可选）
+            progress_callback: 进度回调 callback(progress: int, status: str)
+            video_model: 视频生成模型（sora2/veo3），默认 sora2
+        
+        Returns:
+            最终视频 URL 或 None
+        """
+        from services.video_sequence_service import VideoSequenceOrchestrator
+        
+        logger.info(f"开始生成讲解视频: {len(images)} 张图片, 风格={style}, 目标时长={target_duration}s, 模型={video_model}")
+        
+        # 创建编排器
+        orchestrator = VideoSequenceOrchestrator(
+            llm_client=self.llm,
+            video_service=self.video_service,
+            prompt_manager=self.prompt_manager,
+            oss_service=self.oss_service,
+            video_model=video_model
+        )
+        
+        # 执行编排
+        video_url = await orchestrator.orchestrate(
+            images=images,
+            scripts=scripts,
+            style=style,
+            target_duration=target_duration,
+            bgm_url=bgm_url,
+            progress_callback=progress_callback,
+            video_model=video_model
+        )
+        
+        if video_url:
+            logger.info(f"讲解视频生成成功: {video_url}")
+        else:
+            logger.error("讲解视频生成失败")
+        
+        return video_url
+
+
 # 全局实例
 _xhs_service: Optional[XHSService] = None
 

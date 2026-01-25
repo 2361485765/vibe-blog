@@ -129,7 +129,7 @@ def create_app(config_class=None):
     init_video_service(app.config)
     video_service = get_video_service()
     if video_service and video_service.is_available():
-        logger.info("视频生成服务已初始化")
+        logger.info("统一视频生成服务已初始化 (Veo3 + Sora2)")
     else:
         logger.warning("视频生成服务不可用")
     
@@ -2124,6 +2124,78 @@ def create_app(config_class=None):
                 'success': False, 
                 'error': f'无法取消任务，当前状态: {task.status}'
             }), 400
+    
+    @app.route('/api/xhs/explanation-video', methods=['POST'])
+    def xhs_explanation_video():
+        """
+        从图片序列生成讲解视频
+        
+        请求体:
+        {
+            "images": ["url1", "url2", ...],
+            "scripts": ["文案1", "文案2", ...],
+            "style": "ghibli_summer",  // 可选: ghibli_summer, cartoon, scientific
+            "target_duration": 60,      // 可选: 目标时长（秒）
+            "bgm_url": "...",          // 可选: 背景音乐 URL
+            "video_model": "sora2"     // 可选: sora2 或 veo3，默认 sora2
+        }
+        """
+        try:
+            data = request.get_json()
+            images = data.get('images', [])
+            scripts = data.get('scripts', [])
+            
+            if not images:
+                return jsonify({'success': False, 'error': '请提供图片列表'}), 400
+            
+            if len(images) != len(scripts):
+                return jsonify({'success': False, 'error': '图片数量与文案数量不匹配'}), 400
+            
+            style = data.get('style', 'ghibli_summer')
+            target_duration = data.get('target_duration', 60.0)
+            bgm_url = data.get('bgm_url')
+            video_model = data.get('video_model', 'sora2')  # 默认使用 Sora2
+            
+            # 初始化小红书服务
+            from services.xhs_service import XHSService
+            xhs_service = XHSService(
+                llm_client=get_llm_service(),
+                image_service=get_image_service(),
+                video_service=get_video_service(),
+                oss_service=get_oss_service()
+            )
+            
+            # 执行生成
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                video_url = loop.run_until_complete(xhs_service.generate_explanation_video(
+                    images=images,
+                    scripts=scripts,
+                    style=style,
+                    target_duration=target_duration,
+                    bgm_url=bgm_url,
+                    video_model=video_model
+                ))
+            finally:
+                loop.close()
+            
+            if video_url:
+                return jsonify({
+                    'success': True,
+                    'video_url': video_url,
+                    'video_model': video_model,
+                    'message': '讲解视频生成成功'
+                })
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': '视频生成失败'
+                }), 500
+                
+        except Exception as e:
+            logger.error(f"讲解视频生成失败: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': str(e)}), 500
     
     @app.route('/api/xhs/outline', methods=['POST'])
     def xhs_outline():
