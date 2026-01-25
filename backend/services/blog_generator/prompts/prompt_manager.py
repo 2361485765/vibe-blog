@@ -4,6 +4,7 @@ Prompt 管理器 - 使用 Jinja2 模板管理 Prompt
 
 import os
 import logging
+from datetime import datetime
 from typing import Any, Dict, Optional
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -88,6 +89,10 @@ class PromptManager:
         
         try:
             template = self.env.get_template(template_name)
+            # 自动注入当前时间戳
+            kwargs['current_time'] = datetime.now().strftime('%Y年%m月%d日')
+            kwargs['current_year'] = datetime.now().year
+            kwargs['current_month'] = datetime.now().month
             return template.render(**kwargs)
         except Exception as e:
             logger.error(f"模板渲染失败 [{template_name}]: {e}")
@@ -436,6 +441,102 @@ class PromptManager:
             'missing_diagram_detector',
             section_title=section_title,
             content=content
+        )
+    
+    # ========== 小红书相关 Prompt ==========
+    
+    def render_xhs_outline(
+        self,
+        topic: str,
+        count: int = 4,
+        content: str = None
+    ) -> str:
+        """
+        渲染小红书大纲生成 Prompt
+        
+        Args:
+            topic: 主题
+            count: 页面数量（包括封面）
+            content: 参考内容（可选）
+        """
+        return self.render(
+            'xhs_outline',
+            topic=topic,
+            count=count,
+            content=content
+        )
+    
+    def render_xhs_image(
+        self,
+        page_content: str,
+        page_type: str = "content",
+        style: str = "hand_drawn",
+        reference_image: bool = False,
+        user_topic: str = None,
+        full_outline: str = None,
+        page_index: int = 0
+    ) -> str:
+        """
+        渲染小红书图片生成 Prompt
+        
+        Args:
+            page_content: 页面内容
+            page_type: 页面类型（cover/content/summary）
+            style: 风格（hand_drawn/claymation/ghibli_summer）
+            reference_image: 是否有参考图片
+            user_topic: 用户原始主题
+            full_outline: 完整大纲
+            page_index: 页面序号
+        """
+        # 吉卜力夏日漫画风格 - 使用两步法专用模板（LLM 生成视觉 Prompt）
+        if style == 'ghibli_summer':
+            import random
+            # 漫画布局类型列表
+            layout_types = ['cinematic', 'standard', 'splash', 'dense', 'vertical']
+            # 封面固定使用 full_splash（纯单页大图），其他页面随机选择
+            if page_type == 'cover':
+                layout_type = 'full_splash'
+            else:
+                layout_type = random.choice(layout_types)
+            
+            return self.render(
+                'xhs_visual_prompt_ghibli',
+                page_content=page_content,
+                page_type=page_type,
+                layout_type=layout_type,
+                reference_image=reference_image,
+                user_topic=user_topic,
+                full_outline=full_outline,
+                page_index=page_index
+            )
+        
+        # 默认风格
+        return self.render(
+            'xhs_image',
+            page_content=page_content,
+            page_type=page_type,
+            style=style,
+            reference_image=reference_image,
+            user_topic=user_topic,
+            full_outline=full_outline
+        )
+    
+    def render_xhs_content(
+        self,
+        topic: str,
+        outline: str
+    ) -> str:
+        """
+        渲染小红书文案生成 Prompt
+        
+        Args:
+            topic: 主题
+            outline: 大纲内容
+        """
+        return self.render(
+            'xhs_content',
+            topic=topic,
+            outline=outline
         )
 
 

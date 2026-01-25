@@ -9,6 +9,7 @@ import io
 import json
 import zipfile
 import requests
+import asyncio
 from contextvars import ContextVar
 from dotenv import load_dotenv
 from pathlib import Path
@@ -173,6 +174,11 @@ def create_app(config_class=None):
     @app.route('/')
     def index():
         return send_from_directory(static_folder, 'index.html')
+    
+    # 小红书创作助手页面
+    @app.route('/xhs.html')
+    def xhs_page():
+        return send_from_directory(static_folder, 'xhs.html')
     
     # vibe-reviewer 独立页面
     @app.route('/reviewer')
@@ -1185,15 +1191,29 @@ def create_app(config_class=None):
     
     @app.route('/api/history', methods=['GET'])
     def list_history():
-        """获取历史记录列表（支持分页）"""
+        """
+        获取历史记录列表（支持分页和类型筛选）
+        
+        Query参数:
+            page: 页码，默认1
+            page_size: 每页数量，默认12
+            type: 内容类型筛选 ('all' | 'blog' | 'xhs')，默认'all'
+        """
         try:
             page = request.args.get('page', 1, type=int)
             page_size = request.args.get('page_size', 12, type=int)
+            content_type = request.args.get('type', 'all')  # 新增：类型筛选
             offset = (page - 1) * page_size
             
             db_service = get_db_service()
-            total = db_service.count_history()
-            records = db_service.list_history(limit=page_size, offset=offset)
+            
+            # 使用新的按类型筛选方法
+            total = db_service.count_history_by_type(content_type if content_type != 'all' else None)
+            records = db_service.list_history_by_type(
+                content_type=content_type if content_type != 'all' else None,
+                limit=page_size, 
+                offset=offset
+            )
             total_pages = (total + page_size - 1) // page_size
             
             return jsonify({
@@ -1202,7 +1222,8 @@ def create_app(config_class=None):
                 'total': total,
                 'page': page,
                 'page_size': page_size,
-                'total_pages': total_pages
+                'total_pages': total_pages,
+                'content_type': content_type
             })
         except Exception as e:
             logger.error(f"获取历史记录失败: {e}", exc_info=True)
@@ -1930,6 +1951,514 @@ def create_app(config_class=None):
                 
         except Exception as e:
             logger.error(f"发布博客失败: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': str(e)}), 500
+    
+    # ========== 小红书生成 API ==========
+    
+    @app.route('/api/xhs/generate', methods=['POST'])
+    def xhs_generate():
+        """
+        生成小红书系列
+        
+        请求体:
+        {
+            "topic": "主题",
+            "count": 4,  // 页面数量（包括封面）
+            "style": "hand_drawn",  // hand_drawn 或 claymation
+            "content": "参考内容（可选）",
+            "generate_video": true  // 是否生成动画封面
+        }
+        """
+        try:
+            data = request.get_json()
+            topic = data.get('topic')
+            
+            if not topic:
+                return jsonify({'success': False, 'error': '请提供主题'}), 400
+            
+            count = data.get('count', 4)
+            style = data.get('style', 'hand_drawn')
+            content = data.get('content')
+            generate_video = data.get('generate_video', True)
+            
+            # 初始化小红书服务
+            from services.xhs_service import XHSService
+            
+            xhs_service = XHSService(
+                llm_client=get_llm_service(),
+                image_service=get_image_service(),
+                video_service=get_video_service(),
+                oss_service=None
+            )
+            
+            # 异步执行
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                result = loop.run_until_complete(xhs_service.generate_series(
+                    topic=topic,
+                    count=count,
+                    style=style,
+                    content=content,
+                    generate_video=generate_video
+                ))
+            finally:
+                loop.close()
+            
+            # 保存小红书记录到数据库
+            import uuid
+            xhs_id = f"xhs_{uuid.uuid4().hex[:12]}"
+            db_service.save_xhs_record(
+                history_id=xhs_id,
+                topic=topic,
+                style=style,
+                image_urls=result.image_urls,
+                copy_text=result.copywriting,
+                hashtags=result.tags,
+                cover_image=result.image_urls[0] if result.image_urls else None,
+                cover_video=result.video_url
+            )
+            logger.info(f"小红书记录已保存: {xhs_id}")
+            
+            # 转换为 JSON 可序列化格式
+            return jsonify({
+                'success': True,
+                'data': {
+                    'id': xhs_id,
+                    'topic': result.topic,
+                    'style': result.style,
+                    'pages': [
+                        {
+                            'index': p.index,
+                            'page_type': p.page_type,
+                            'content': p.content
+                        } for p in result.pages
+                    ],
+                    'image_urls': result.image_urls,
+                    'video_url': result.video_url,
+                    'titles': result.titles,
+                    'copywriting': result.copywriting,
+                    'tags': result.tags,
+                    'outline': result.outline
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"小红书生成失败: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': str(e)}), 500
+    
+    @app.route('/api/xhs/outline', methods=['POST'])
+    def xhs_outline():
+        """
+        仅生成小红书大纲（不生成图片）
+        
+        请求体:
+        {
+            "topic": "主题",
+            "count": 4,
+            "content": "参考内容（可选）"
+        }
+        """
+        try:
+            data = request.get_json()
+            topic = data.get('topic')
+            
+            if not topic:
+                return jsonify({'success': False, 'error': '请提供主题'}), 400
+            
+            count = data.get('count', 4)
+            content = data.get('content')
+            
+            # 初始化小红书服务
+            from services.xhs_service import XHSService
+            
+            xhs_service = XHSService(
+                llm_client=get_llm_service(),
+                image_service=None,
+                video_service=None,
+                oss_service=None
+            )
+            
+            # 异步执行
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                outline, pages = loop.run_until_complete(xhs_service._generate_outline(
+                    topic=topic,
+                    count=count,
+                    content=content
+                ))
+            finally:
+                loop.close()
+            
+            return jsonify({
+                'success': True,
+                'data': {
+                    'outline': outline,
+                    'pages': [
+                        {
+                            'index': p.index,
+                            'page_type': p.page_type,
+                            'content': p.content
+                        } for p in pages
+                    ]
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"小红书大纲生成失败: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': str(e)}), 500
+    
+    @app.route('/api/xhs/publish', methods=['POST'])
+    def xhs_publish():
+        """
+        发布小红书笔记
+        
+        请求体:
+        {
+            "cookies": [...],  // 小红书登录 Cookie
+            "title": "标题",
+            "content": "文案内容",
+            "tags": ["话题1", "话题2"],
+            "images": ["/path/to/image1.jpg", "/path/to/image2.jpg"]  // 本地图片路径
+        }
+        """
+        try:
+            data = request.get_json()
+            cookies = data.get('cookies', [])
+            title = data.get('title', '')
+            content = data.get('content', '')
+            tags = data.get('tags', [])
+            images = data.get('images', [])
+            
+            if not cookies:
+                return jsonify({'success': False, 'error': '请提供小红书登录 Cookie'}), 400
+            
+            if not images:
+                return jsonify({'success': False, 'error': '请提供至少一张图片'}), 400
+            
+            from services.publishers.publisher import Publisher
+            
+            publisher = Publisher()
+            
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                result = loop.run_until_complete(publisher.publish(
+                    platform_id='xiaohongshu',
+                    cookies=cookies,
+                    title=title,
+                    content=content,
+                    tags=tags,
+                    images=images,
+                    headless=False  # 打开浏览器，方便调试和人工干预
+                ))
+            finally:
+                loop.close()
+            
+            if result.get('success'):
+                return jsonify(result)
+            else:
+                return jsonify(result), 400
+                
+        except Exception as e:
+            logger.error(f"小红书发布失败: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': str(e)}), 500
+    
+    @app.route('/api/history/<history_id>/to-xhs', methods=['POST'])
+    def convert_blog_to_xhs(history_id):
+        """
+        将博客转换为小红书系列
+        
+        请求体:
+        {
+            "style": "hand_drawn",      // 风格：hand_drawn | claymation
+            "count": 4,                 // 图片数量
+            "generate_video": true      // 是否生成动画封面
+        }
+        
+        返回:
+        {
+            "success": true,
+            "data": {
+                "xhs_id": "xhs_xxx",    // 新创建的小红书记录ID
+                "image_urls": [...],
+                "video_url": "...",
+                "titles": [...],
+                "copywriting": "...",
+                "tags": [...]
+            }
+        }
+        """
+        try:
+            data = request.get_json() or {}
+            style = data.get('style', 'hand_drawn')
+            count = data.get('count', 4)
+            generate_video = data.get('generate_video', True)
+            
+            # 获取博客记录
+            db_service = get_db_service()
+            blog_record = db_service.get_history(history_id)
+            
+            if not blog_record:
+                return jsonify({'success': False, 'error': '博客记录不存在'}), 404
+            
+            if blog_record.get('content_type') == 'xhs':
+                return jsonify({'success': False, 'error': '该记录已经是小红书类型'}), 400
+            
+            # 获取小红书服务
+            from services.xhs_service import get_xhs_service
+            xhs_service = get_xhs_service()
+            
+            if not xhs_service:
+                return jsonify({'success': False, 'error': '小红书服务未初始化'}), 503
+            
+            # 从博客内容生成小红书系列
+            topic = blog_record.get('topic', '')
+            content = blog_record.get('markdown_content', '')
+            outline = blog_record.get('outline', '')
+            
+            # 使用大纲作为参考内容
+            reference_content = outline if outline else content[:2000]
+            
+            logger.info(f"开始将博客转换为小红书: {history_id} -> {topic}")
+            
+            # 异步生成
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                result = loop.run_until_complete(xhs_service.generate_series(
+                    topic=topic,
+                    count=count,
+                    style=style,
+                    content=reference_content,
+                    generate_video=generate_video
+                ))
+            finally:
+                loop.close()
+            
+            # 生成小红书记录ID
+            import uuid
+            xhs_id = f"xhs_{uuid.uuid4().hex[:12]}"
+            
+            # 保存小红书记录到数据库
+            db_service.save_xhs_record(
+                history_id=xhs_id,
+                topic=topic,
+                style=style,
+                layout_type='auto',
+                image_urls=result.image_urls,
+                copy_text=result.copywriting,
+                hashtags=result.tags,
+                cover_image=result.image_urls[0] if result.image_urls else None,
+                cover_video=result.video_url,
+                source_id=history_id  # 关联到原博客
+            )
+            
+            logger.info(f"博客转小红书完成: {history_id} -> {xhs_id}")
+            
+            return jsonify({
+                'success': True,
+                'data': {
+                    'xhs_id': xhs_id,
+                    'source_id': history_id,
+                    'image_urls': result.image_urls,
+                    'video_url': result.video_url,
+                    'titles': result.titles,
+                    'copywriting': result.copywriting,
+                    'tags': result.tags
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"博客转小红书失败: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': str(e)}), 500
+    
+    @app.route('/api/publish/sync', methods=['POST'])
+    def sync_publish():
+        """
+        同步发布到多个平台
+        
+        请求体:
+        {
+            "record_id": "xxx",                    // 记录ID
+            "blog_platforms": ["csdn", "zhihu"],   // 博客平台列表
+            "xhs_enabled": true,                   // 是否同时发布小红书
+            "xhs_options": {                       // 小红书选项（如果 xhs_enabled=true）
+                "style": "hand_drawn",
+                "count": 4,
+                "generate_video": true
+            },
+            "cookies": {                           // 各平台的 Cookie
+                "csdn": [...],
+                "zhihu": [...],
+                "xiaohongshu": [...]
+            }
+        }
+        
+        返回:
+        {
+            "success": true,
+            "results": {
+                "blog": {
+                    "csdn": {"success": true, "url": "..."},
+                    "zhihu": {"success": true, "url": "..."}
+                },
+                "xhs": {
+                    "success": true,
+                    "xhs_id": "...",
+                    "publish_url": "..."
+                }
+            }
+        }
+        """
+        try:
+            data = request.get_json()
+            record_id = data.get('record_id')
+            blog_platforms = data.get('blog_platforms', [])
+            xhs_enabled = data.get('xhs_enabled', False)
+            xhs_options = data.get('xhs_options', {})
+            cookies = data.get('cookies', {})
+            
+            if not record_id:
+                return jsonify({'success': False, 'error': '请提供记录ID'}), 400
+            
+            # 获取记录
+            db_service = get_db_service()
+            record = db_service.get_history(record_id)
+            
+            if not record:
+                return jsonify({'success': False, 'error': '记录不存在'}), 404
+            
+            results = {
+                'blog': {},
+                'xhs': None
+            }
+            
+            from services.publishers.publisher import Publisher
+            publisher = Publisher()
+            
+            # 发布到博客平台
+            for platform in blog_platforms:
+                platform_cookies = cookies.get(platform, [])
+                if not platform_cookies:
+                    results['blog'][platform] = {'success': False, 'error': '未提供Cookie'}
+                    continue
+                
+                try:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        result = loop.run_until_complete(publisher.publish(
+                            platform_id=platform,
+                            cookies=platform_cookies,
+                            title=record.get('topic', ''),
+                            content=record.get('markdown_content', ''),
+                            headless=True
+                        ))
+                        results['blog'][platform] = result
+                        
+                        # 更新发布状态
+                        if result.get('success'):
+                            from datetime import datetime
+                            db_service.update_publish_platforms(record_id, platform, {
+                                'status': 'published',
+                                'url': result.get('url', ''),
+                                'published_at': datetime.now().isoformat()
+                            })
+                    finally:
+                        loop.close()
+                except Exception as e:
+                    results['blog'][platform] = {'success': False, 'error': str(e)}
+            
+            # 如果启用小红书发布
+            if xhs_enabled:
+                xhs_cookies = cookies.get('xiaohongshu', [])
+                
+                # 先转换为小红书格式
+                from services.xhs_service import get_xhs_service
+                xhs_service = get_xhs_service()
+                
+                if xhs_service:
+                    try:
+                        style = xhs_options.get('style', 'hand_drawn')
+                        count = xhs_options.get('count', 4)
+                        generate_video = xhs_options.get('generate_video', True)
+                        
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            xhs_result = loop.run_until_complete(xhs_service.generate_series(
+                                topic=record.get('topic', ''),
+                                count=count,
+                                style=style,
+                                content=record.get('outline', '') or record.get('markdown_content', '')[:2000],
+                                generate_video=generate_video
+                            ))
+                        finally:
+                            loop.close()
+                        
+                        # 保存小红书记录
+                        import uuid
+                        xhs_id = f"xhs_{uuid.uuid4().hex[:12]}"
+                        db_service.save_xhs_record(
+                            history_id=xhs_id,
+                            topic=record.get('topic', ''),
+                            style=style,
+                            image_urls=xhs_result.image_urls,
+                            copy_text=xhs_result.copywriting,
+                            hashtags=xhs_result.tags,
+                            cover_image=xhs_result.image_urls[0] if xhs_result.image_urls else None,
+                            cover_video=xhs_result.video_url,
+                            source_id=record_id
+                        )
+                        
+                        results['xhs'] = {
+                            'success': True,
+                            'xhs_id': xhs_id,
+                            'image_urls': xhs_result.image_urls,
+                            'video_url': xhs_result.video_url,
+                            'titles': xhs_result.titles,
+                            'copywriting': xhs_result.copywriting,
+                            'tags': xhs_result.tags
+                        }
+                        
+                        # 如果提供了小红书 Cookie，则发布
+                        if xhs_cookies and xhs_result.image_urls:
+                            try:
+                                loop = asyncio.new_event_loop()
+                                asyncio.set_event_loop(loop)
+                                try:
+                                    publish_result = loop.run_until_complete(publisher.publish(
+                                        platform_id='xiaohongshu',
+                                        cookies=xhs_cookies,
+                                        title=xhs_result.titles[0] if xhs_result.titles else record.get('topic', ''),
+                                        content=xhs_result.copywriting,
+                                        tags=xhs_result.tags,
+                                        images=xhs_result.image_urls,
+                                        headless=True
+                                    ))
+                                    
+                                    if publish_result.get('success'):
+                                        results['xhs']['publish_url'] = publish_result.get('url', '')
+                                        db_service.update_xhs_publish_url(xhs_id, publish_result.get('url', ''))
+                                finally:
+                                    loop.close()
+                            except Exception as e:
+                                results['xhs']['publish_error'] = str(e)
+                                
+                    except Exception as e:
+                        results['xhs'] = {'success': False, 'error': str(e)}
+                else:
+                    results['xhs'] = {'success': False, 'error': '小红书服务未初始化'}
+            
+            return jsonify({
+                'success': True,
+                'results': results
+            })
+            
+        except Exception as e:
+            logger.error(f"同步发布失败: {e}", exc_info=True)
             return jsonify({'success': False, 'error': str(e)}), 500
     
     # ========== vibe-reviewer 初始化 (新增) ==========

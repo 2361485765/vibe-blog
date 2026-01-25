@@ -10,6 +10,7 @@ import tempfile
 import os
 import re
 import logging
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,7 @@ class PublishContext:
     category: str = ""
     article_type: str = "original"
     pub_type: str = "public"
+    images: list[str] = field(default_factory=list)  # 图片路径列表（用于小红书等图片平台）
     
     def get_variable(self, name: str) -> Any:
         """获取变量值"""
@@ -219,6 +221,93 @@ class ActionExecutor:
         delay = action.get('delay', 50)
         await self.page.keyboard.type(text, delay=delay)
         return ActionResult(True)
+    
+    async def _action_wait_for_images(self, action: dict) -> ActionResult:
+        """等待图片上传完成（小红书专用）"""
+        timeout = action.get('timeout', 60000)
+        # 等待上传进度消失或图片预览出现
+        try:
+            await self.page.wait_for_selector(
+                '.upload-progress, .uploading',
+                state='hidden',
+                timeout=timeout
+            )
+        except:
+            pass  # 可能没有进度条
+        
+        # 确认图片已上传
+        await self.page.wait_for_timeout(1000)
+        return ActionResult(True)
+    
+    async def _action_xhs_add_tags(self, action: dict) -> ActionResult:
+        """小红书添加话题标签 - 通过在正文末尾追加 #标签 格式"""
+        tags = self.context.tags
+        if not tags:
+            return ActionResult(True, "无标签")
+        
+        logger.info(f"[小红书话题] 准备添加 {len(tags)} 个标签: {tags[:5]}")
+        
+        # 方法1: 尝试在正文编辑器末尾追加标签
+        try:
+            editor = await self.page.query_selector('.ql-editor, [contenteditable="true"], #post-textarea')
+            if editor:
+                await editor.click()
+                await self.page.wait_for_timeout(300)
+                
+                # 移动到末尾
+                await self.page.keyboard.press('End')
+                await self.page.keyboard.press('Control+End')
+                await self.page.wait_for_timeout(200)
+                
+                # 添加换行和标签
+                await self.page.keyboard.press('Enter')
+                await self.page.keyboard.press('Enter')
+                
+                # 输入标签（小红书格式：#标签 空格分隔）
+                tags_text = ' '.join([f'#{tag}' for tag in tags[:5]])
+                await self.page.keyboard.type(tags_text, delay=30)
+                logger.info(f"[小红书话题] 已在正文末尾添加: {tags_text}")
+                
+                await self.page.wait_for_timeout(500)
+                return ActionResult(True, f"已添加 {len(tags[:5])} 个标签")
+        except Exception as e:
+            logger.warning(f"[小红书话题] 方法1失败: {e}")
+        
+        # 方法2: 尝试使用话题输入框
+        tag_button = action.get('tag_button_selector')
+        tag_input = action.get('tag_input_selector')
+        tag_suggestion = action.get('tag_suggestion_selector')
+        
+        for tag in tags[:5]:
+            try:
+                # 点击添加话题按钮
+                if tag_button:
+                    btn = await self.page.query_selector(tag_button)
+                    if btn:
+                        await btn.click()
+                        await self.page.wait_for_timeout(500)
+                
+                # 输入话题
+                if tag_input:
+                    input_el = await self.page.query_selector(tag_input)
+                    if input_el:
+                        await input_el.fill(tag)
+                        await self.page.wait_for_timeout(1000)
+                        
+                        # 选择建议的话题
+                        if tag_suggestion:
+                            suggestion = await self.page.query_selector(tag_suggestion)
+                            if suggestion:
+                                await suggestion.click()
+                                logger.info(f"[小红书话题] 已选择: #{tag}")
+                            else:
+                                await self.page.keyboard.press('Enter')
+                        
+                        await self.page.wait_for_timeout(300)
+            except Exception as e:
+                logger.warning(f"[小红书话题] 添加 #{tag} 失败: {e}")
+        
+        return ActionResult(True)
 
 
 class WorkflowEngine:
@@ -286,6 +375,8 @@ class WorkflowEngine:
             return await self._upload_via_import(page, upload_config, context)
         elif upload_type == 'direct_input':
             return await self._upload_via_direct(page, upload_config, context)
+        elif upload_type == 'xhs_images':
+            return await self._upload_xhs_images(page, upload_config, context)
         else:
             return ActionResult(False, f"未知上传类型: {upload_type}")
     
@@ -360,6 +451,73 @@ class WorkflowEngine:
         await page.keyboard.type(context.content)
         
         return ActionResult(True)
+    
+    async def _upload_xhs_images(self, page: Page, config: dict, context: PublishContext) -> ActionResult:
+        """小红书图片上传（逐张上传，因为小红书不支持多文件上传）"""
+        images = context.images
+        if not images:
+            return ActionResult(False, "没有图片可上传")
+        
+        image_selector = config.get('image_upload_selector', 'input[type="file"][accept*="image"]')
+        temp_files = []  # 用于存储临时文件路径，最后清理
+        
+        try:
+            # 逐张上传图片（小红书的 input 不支持 multiple）
+            for i, image_path in enumerate(images):
+                # 如果是远程 URL，先下载到本地临时文件
+                local_path = image_path
+                if image_path.startswith('http://') or image_path.startswith('https://'):
+                    logger.info(f"[小红书] 下载远程图片: {image_path}")
+                    async with httpx.AsyncClient(timeout=30.0) as client:
+                        response = await client.get(image_path)
+                        response.raise_for_status()
+                        # 创建临时文件
+                        suffix = os.path.splitext(image_path.split('?')[0])[-1] or '.png'
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as f:
+                            f.write(response.content)
+                            local_path = f.name
+                            temp_files.append(local_path)
+                
+                # 每次上传前重新查找上传元素（因为 DOM 可能会变化）
+                file_input = await page.query_selector(image_selector)
+                if not file_input:
+                    # 尝试其他常见选择器
+                    for selector in [
+                        'input[type="file"]',
+                        '.upload-input input',
+                        '[class*="upload"] input[type="file"]'
+                    ]:
+                        file_input = await page.query_selector(selector)
+                        if file_input:
+                            break
+                
+                if not file_input:
+                    return ActionResult(False, f"未找到图片上传元素（第 {i+1} 张）")
+                
+                # 上传单张图片
+                await file_input.set_input_files(local_path)
+                logger.info(f"[小红书] 已上传第 {i+1}/{len(images)} 张图片")
+                
+                # 等待单张图片上传完成
+                await page.wait_for_timeout(2000)
+            
+            # 额外等待所有图片处理完成
+            wait_after = config.get('wait_after', 3000)
+            await page.wait_for_timeout(wait_after)
+            
+            return ActionResult(True, f"已上传 {len(images)} 张图片")
+            
+        except Exception as e:
+            logger.error(f"[小红书] 图片上传失败: {e}")
+            return ActionResult(False, f"图片上传失败: {e}")
+        finally:
+            # 清理临时文件
+            for temp_file in temp_files:
+                try:
+                    if os.path.exists(temp_file):
+                        os.unlink(temp_file)
+                except Exception:
+                    pass
     
     async def get_result_url(self, page: Page, config: dict) -> Optional[str]:
         """获取发布后的文章 URL"""

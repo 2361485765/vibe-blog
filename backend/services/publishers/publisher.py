@@ -51,12 +51,13 @@ class Publisher:
         article_type: str = "original",
         pub_type: str = "public",
         headless: bool = True,
+        images: Optional[list[str]] = None,
     ) -> dict:
         """
         发布文章到指定平台
         
         Args:
-            platform_id: 平台 ID (csdn/zhihu/juejin)
+            platform_id: 平台 ID (csdn/zhihu/juejin/xiaohongshu)
             cookies: 登录 Cookie
             title: 文章标题
             content: 文章内容（Markdown）
@@ -65,6 +66,7 @@ class Publisher:
             article_type: 文章类型 (original/repost/translation)
             pub_type: 发布类型 (public/private)
             headless: 是否无头模式运行浏览器
+            images: 图片路径列表（用于小红书等图片平台）
             
         Returns:
             dict: {"success": bool, "url": str, "message": str, "platform": str}
@@ -116,7 +118,8 @@ class Publisher:
             tags=tags or [],
             category=category or "",
             article_type=article_type,
-            pub_type=pub_type
+            pub_type=pub_type,
+            images=images or []
         )
         
         async with async_playwright() as p:
@@ -131,13 +134,27 @@ class Publisher:
                 
                 # 确保每个 Cookie 都有必要的字段
                 normalized_cookies = []
+                cookie_domain = config['platform'].get('cookie_domain', '.csdn.net')
                 for cookie in cookies:
-                    c = {
-                        "name": cookie.get("name", ""),
-                        "value": cookie.get("value", ""),
-                        "domain": cookie.get("domain", config['platform'].get('cookie_domain', '.csdn.net')),
-                        "path": cookie.get("path", "/"),
-                    }
+                    # 支持字典格式和字符串格式
+                    if isinstance(cookie, dict):
+                        c = {
+                            "name": cookie.get("name", ""),
+                            "value": cookie.get("value", ""),
+                            "domain": cookie.get("domain", cookie_domain),
+                            "path": cookie.get("path", "/"),
+                        }
+                    elif isinstance(cookie, str) and '=' in cookie:
+                        # 解析 "name=value" 格式
+                        eq_idx = cookie.index('=')
+                        c = {
+                            "name": cookie[:eq_idx].strip(),
+                            "value": cookie[eq_idx+1:].strip(),
+                            "domain": cookie_domain,
+                            "path": "/",
+                        }
+                    else:
+                        continue
                     normalized_cookies.append(c)
                 
                 await ctx.add_cookies(normalized_cookies)
