@@ -1,38 +1,18 @@
-# 前端构建阶段
-FROM node:20-alpine AS builder
-
-WORKDIR /app
-
-# 使用淘宝镜像源加速
-RUN npm config set registry https://registry.npmmirror.com
-
-# 复制 package.json 和 lock 文件
-COPY package*.json ./
-
-# 安装依赖
-RUN npm ci
-
-# 复制源代码
-COPY . .
-
-# 设置 Node.js 内存限制，避免 OOM
-ENV NODE_OPTIONS="--max-old-space-size=512"
-
-# 构建生产版本
-RUN npm run build
-
-# 生产阶段 - 使用 Nginx 提供静态文件
+# 生产阶段 - 直接使用预构建的 dist 目录
+# 注意：需要先在本地执行 npm run build 生成 dist/
 FROM nginx:alpine
 
-# 复制构建产物到 Nginx 目录
-COPY --from=builder /app/dist /usr/share/nginx/html
+# 复制预构建的静态文件到 Nginx 目录
+COPY dist /usr/share/nginx/html
 
-# 创建简单的 Nginx 配置（Vue Router 历史模式支持）
+# 创建 Nginx 配置（Vue Router 历史模式支持）
 RUN echo 'server { \
     listen 80; \
     server_name localhost; \
     root /usr/share/nginx/html; \
     index index.html; \
+    gzip on; \
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml; \
     location / { \
         try_files $uri $uri/ /index.html; \
     } \
