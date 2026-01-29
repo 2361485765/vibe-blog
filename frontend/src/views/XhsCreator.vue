@@ -231,6 +231,7 @@
         </div>
       </div>
     </div>
+    </div>
     
     <!-- 发布弹窗 -->
     <div v-if="showPublishModal" class="publish-modal" @click.self="closePublishDialog">
