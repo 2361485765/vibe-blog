@@ -31,6 +31,18 @@
     <div class="code-cards-container">
       <!-- 主输入框 - 终端风格搜索栏 -->
       <div class="code-input-card">
+        <!-- Code Style 粒子背景 -->
+        <div class="particles-bg">
+          <!-- 代码符号粒子 -->
+          <span class="code-particle cp1">&lt;/&gt;</span>
+          <span class="code-particle cp2">{}</span>
+          <span class="code-particle cp3">( )</span>
+          <span class="code-particle cp4">[ ]</span>
+          <span class="code-particle cp5">=&gt;</span>
+          <span class="code-particle cp6">/**</span>
+          <span class="code-particle cp7">$_</span>
+          <span class="code-particle cp8">::</span>
+        </div>
         <!-- 终端头部 -->
         <div class="code-input-header">
           <div class="terminal-dots">
@@ -200,193 +212,101 @@
       </div>
     </div>
 
-    <!-- 进度面板 - 右侧可折叠书签终端 -->
-    <div v-if="showProgress" class="terminal-sidebar" :class="{ expanded: terminalExpanded, resizing: isResizingTerminal }">
-      <!-- 折叠状态的 Tab -->
-      <div class="terminal-tab" @click="terminalExpanded = !terminalExpanded">
-        <div class="terminal-tab-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-            <polyline points="4 17 10 11 4 5"></polyline>
-            <line x1="12" x2="20" y1="19" y2="19"></line>
-          </svg>
+    <!-- 进度面板 - 底部抽屉式，放在输入框容器内 -->
+    <div v-if="showProgress" class="progress-drawer" :class="{ expanded: terminalExpanded }" :style="{ height: terminalExpanded ? (terminalHeight / 2) + 'px' : 'auto' }">
+      <!-- 最小化状态栏 -->
+      <div class="progress-bar-mini" @click="toggleTerminal">
+        <div class="progress-bar-left">
+          <span class="progress-indicator" :class="{ active: isLoading }"></span>
+          <span class="progress-status">{{ statusBadge }}</span>
+          <span class="progress-text">{{ progressText }}</span>
         </div>
-        <span class="terminal-tab-label">Terminal</span>
-        <span v-if="isLoading" class="terminal-tab-status active"></span>
-        <span v-else-if="progressItems.length > 0" class="terminal-tab-badge">{{ progressItems.length }}</span>
+        <div class="progress-bar-right">
+          <span class="progress-logs">{{ progressItems.length }} logs</span>
+          <button v-if="isLoading" class="progress-stop-btn" @click.stop="stopGeneration">
+            <Square :size="10" /> 中断
+          </button>
+          <button class="progress-toggle-btn" @click.stop="toggleTerminal">
+            <ChevronRight :size="14" :class="{ 'rotate-down': terminalExpanded }" />
+          </button>
+          <button class="progress-close-btn" @click.stop="closeProgress">
+            <X :size="14" />
+          </button>
+        </div>
       </div>
       
-      <!-- 展开的终端内容 -->
-      <div class="terminal-content" :style="{ width: terminalWidth + 'px', height: terminalHeight + 'px' }">
-        <!-- 左侧拖拽边框 -->
-        <div class="terminal-resize-handle left" @mousedown="startResizeTerminal($event, 'left')"></div>
+      <!-- 展开的日志内容 -->
+      <div class="progress-content" :style="{ height: terminalExpanded ? (terminalHeight / 2) + 'px' : '0' }">
         <!-- 顶部拖拽边框 -->
-        <div class="terminal-resize-handle top" @mousedown="startResizeTerminal($event, 'top')"></div>
-        <!-- 底部拖拽边框 -->
-        <div class="terminal-resize-handle bottom" @mousedown="startResizeTerminal($event, 'bottom')"></div>
-        <!-- 左上角拖拽 -->
-        <div class="terminal-resize-handle corner-top-left" @mousedown="startResizeTerminal($event, 'corner-top-left')"></div>
-        <!-- 左下角拖拽 -->
-        <div class="terminal-resize-handle corner-bottom-left" @mousedown="startResizeTerminal($event, 'corner-bottom-left')"></div>
-        <!-- 终端标题栏 -->
-        <div class="claude-terminal-header">
-          <div class="claude-terminal-left">
-            <div class="terminal-dots">
-              <span class="terminal-dot red"></span>
-              <span class="terminal-dot yellow"></span>
-              <span class="terminal-dot green"></span>
-            </div>
-            <span class="claude-terminal-title">claude — ~/vibe-blog</span>
-          </div>
-          <div class="claude-terminal-right">
-            <button class="claude-action-btn" title="导出为图片" @click="exportProgressAsImage"><Camera :size="12" /></button>
-            <button class="claude-action-btn" title="折叠" @click="terminalExpanded = false"><ChevronRight :size="12" /></button>
-            <button class="claude-action-btn close" title="关闭" @click="closeProgress"><X :size="12" /></button>
-          </div>
-        </div>
+        <div class="progress-resize-handle" @mousedown="startResizeTerminal($event, 'top')"></div>
         
-        <!-- 终端内容区 -->
-        <div class="claude-terminal-body" ref="progressBodyRef">
+        <!-- 日志内容区 -->
+        <div class="progress-logs-container" ref="progressBodyRef">
           <!-- 任务启动信息 -->
-          <div class="claude-task-header">
-            <div class="claude-task-line">
-              <span class="claude-prompt">❯</span>
-              <span class="claude-command">generate</span>
-              <span class="claude-arg">--type</span>
-              <span class="claude-value">{{ articleType }}</span>
-              <span class="claude-arg">--length</span>
-              <span class="claude-value">{{ targetLength }}</span>
-            </div>
-            <div class="claude-task-id" v-if="currentTaskId">
-              <span class="claude-muted">task_id:</span> {{ currentTaskId }}
-            </div>
+          <div class="progress-task-header">
+            <span class="progress-prompt">❯</span>
+            <span class="progress-command">generate</span>
+            <span class="progress-arg">--type</span>
+            <span class="progress-value">{{ articleType }}</span>
+            <span class="progress-arg">--length</span>
+            <span class="progress-value">{{ targetLength }}</span>
+            <span v-if="currentTaskId" class="progress-task-id">{{ currentTaskId }}</span>
           </div>
           
           <!-- 进度日志 -->
-          <div class="claude-logs">
+          <div class="progress-log-list">
             <div 
               v-for="(item, index) in progressItems" 
               :key="index" 
-              class="claude-log-item"
+              class="progress-log-item"
               :class="item.type"
             >
-              <span class="claude-log-time">{{ item.time }}</span>
-              <span class="claude-log-icon" :class="item.type">{{ getLogIcon(item.type) }}</span>
-              <span class="claude-log-msg" v-html="item.message"></span>
-              <div v-if="item.detail" class="claude-log-detail">
+              <span class="progress-log-time">{{ item.time }}</span>
+              <span class="progress-log-icon" :class="item.type">{{ getLogIcon(item.type) }}</span>
+              <span class="progress-log-msg" v-html="item.message"></span>
+              <div v-if="item.detail" class="progress-log-detail">
                 <pre>{{ item.detail }}</pre>
               </div>
             </div>
             
             <!-- 加载动画 -->
-            <div v-if="isLoading" class="claude-loading-line">
-              <span class="claude-spinner"></span>
-              <span class="claude-loading-text">{{ progressText }}</span>
+            <div v-if="isLoading" class="progress-loading-line">
+              <span class="progress-spinner"></span>
+              <span class="progress-loading-text">{{ progressText }}</span>
             </div>
-          </div>
-        </div>
-        
-        <!-- 终端底部状态栏 -->
-        <div class="claude-terminal-footer">
-          <div class="claude-status-left">
-            <span class="claude-status-indicator" :class="{ active: isLoading }"></span>
-            <span class="claude-status-badge" :class="statusBadgeClass">{{ statusBadge }}</span>
-            <span class="claude-status-text">{{ progressText }}</span>
-          </div>
-          <div class="claude-status-right">
-            <span class="claude-stats">{{ progressItems.length }} logs</span>
-            <button v-if="isLoading" class="claude-stop-btn" @click="stopGeneration">
-              <Square :size="10" /> 中断
-            </button>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 结果区域 -->
-    <section v-if="showResult" class="result-section show">
-      <div class="result-card">
-        <div class="result-header">
-          <div class="result-title">{{ currentResult?.outline?.title || '生成结果' }}</div>
-          <div class="result-meta">
-            <span class="meta-tag sections"><BookOpen :size="12" /> {{ currentResult?.sections_count || 0 }} 章节</span>
-            <span class="meta-tag code"><Code :size="12" /> {{ currentResult?.code_blocks_count || 0 }} 代码块</span>
-            <span class="meta-tag images"><Image :size="12" /> {{ currentResult?.images_count || 0 }} 配图</span>
-            <span class="meta-tag score"><Star :size="12" /> 评分 {{ currentResult?.review_score || 0 }}</span>
-          </div>
-        </div>
-        <div class="result-pages">
-          <!-- 封面视频 -->
-          <div v-if="currentResult?.cover_video" class="page-item">
-            <div class="page-header">
-              <div class="page-number"><Video :size="14" /></div>
-              <div class="page-title">封面动画</div>
-              <div class="page-actions">
-                <button class="download-video-btn" @click="downloadCoverVideo"><Download :size="12" /> 下载视频</button>
-              </div>
-            </div>
-            <div class="video-container">
-              <video 
-                :src="getVideoSrc(currentResult.cover_video)" 
-                :poster="currentResult.cover_image ? getImageSrc(currentResult.cover_image) : ''"
-                controls autoplay loop muted playsinline
-              ></video>
-            </div>
-          </div>
-
-          <!-- Markdown 内容 -->
-          <div v-if="currentResult?.markdown" class="page-item">
-            <div class="page-header">
-              <div class="page-number"><FileText :size="14" /></div>
-              <div class="page-title">完整博客内容</div>
-              <div class="page-actions">
-                <button class="export-image-btn" @click="exportMarkdownAsImage"><Camera :size="12" /> 导出图片</button>
-                <button class="download-markdown-btn" @click="downloadMarkdown"><Download :size="12" /> 下载 Markdown</button>
-                <button class="publish-btn" @click="showPublishModal = true"><Rocket :size="12" /> 发布到平台</button>
-              </div>
-            </div>
-            <div class="markdown-body" ref="markdownContentRef" v-html="renderedMarkdown"></div>
-          </div>
-        </div>
-      </div>
-    </section>
 
     <!-- 博客列表容器 -->
-    <div class="code-cards-container">
-      <!-- 统计信息和筛选 -->
-      <div class="code-cards-stats">
-        <div class="stats-left">
-          <span class="stats-command">$ count:</span>
-          <span class="stats-count">{{ historyTotal }}</span>
-          <span class="stats-label">{{ currentHistoryTab === 'blogs' ? 'blogs available' : 'books available' }}</span>
-          <span class="stats-separator">--sort</span>
-          <div class="code-sort-buttons">
-            <button 
-              class="code-sort-btn"
-              :class="{ active: sortBy === 'recent' }"
-              @click="sortBy = 'recent'"
-            ><Clock :size="12" /> recent</button>
-            <button 
-              class="code-sort-btn"
-              :class="{ active: sortBy === 'stars' }"
-              @click="sortBy = 'stars'"
-            ><Star :size="12" /> stars</button>
-          </div>
-        </div>
-        <div class="stats-right">
-          <!-- Tab 切换 -->
+    <div class="code-cards-container" :class="{ collapsed: !showBlogList }">
+      <!-- 展开/折叠按钮 -->
+      <button class="blog-list-toggle" @click="showBlogList = !showBlogList">
+        <ChevronDown :size="14" :class="{ 'rotate-up': showBlogList }" />
+        <span>$ count: {{ historyTotal || 0 }} blogs available --sort</span>
+        <Star :size="12" />
+        <span>stars</span>
+        <Clock :size="12" />
+        <span>recent</span>
+      </button>
+      
+      <!-- 筛选工具栏 - 仅展开时显示 -->
+      <div v-show="showBlogList" class="history-toolbar">
+        <div class="toolbar-left">
           <div class="code-tabs">
             <button 
               class="code-tab-btn" 
               :class="{ active: currentHistoryTab === 'blogs' }"
               @click="switchHistoryTab('blogs')"
-            ><FileText :size="12" /> 历史博客</button>
+            ><FileText :size="12" /> 博客</button>
             <button 
               class="code-tab-btn" 
               :class="{ active: currentHistoryTab === 'books' }"
               @click="switchHistoryTab('books')"
-            ><Book :size="12" /> 教程列表</button>
+            ><Book :size="12" /> 教程</button>
           </div>
-          <!-- 内容类型筛选 -->
           <div v-if="currentHistoryTab === 'blogs'" class="content-type-filter">
             <button 
               v-for="filter in contentTypeFilters" 
@@ -398,6 +318,8 @@
               {{ filter.label }}
             </button>
           </div>
+        </div>
+        <div class="toolbar-right">
           <button 
             v-if="currentHistoryTab === 'books' && appConfig.features?.book_scan" 
             class="scan-books-btn"
@@ -406,26 +328,22 @@
           >
             <Loader v-if="isScanning" :size="12" class="spin" />
             <RefreshCw v-else :size="12" />
-            {{ isScanning ? '扫描中...' : '扫描聚合' }}
+            {{ isScanning ? '扫描中...' : '扫描' }}
           </button>
-          <!-- 封面预览开关 - iOS 风格 -->
           <div 
             v-if="currentHistoryTab === 'blogs'"
             class="cover-preview-toggle"
             :class="{ active: showCoverPreview }"
             @click="showCoverPreview = !showCoverPreview"
           >
-            <span class="toggle-label-group">
-              <ImageIcon :size="14" />
-              <span>封面预览</span>
-            </span>
+            <ImageIcon :size="12" />
             <div class="toggle-switch"></div>
           </div>
         </div>
       </div>
 
       <!-- 博客列表 - 代码风格卡片 -->
-      <div v-if="currentHistoryTab === 'blogs'" class="code-cards-grid">
+      <div v-show="showBlogList && currentHistoryTab === 'blogs'" class="code-cards-grid">
         <div v-if="historyRecords.length === 0" class="history-empty">
           {{ historyContentType === 'xhs' ? '暂无小红书记录，前往小红书创作助手生成' : '// 暂无历史记录，生成博客后将自动保存' }}
         </div>
@@ -541,8 +459,9 @@
             </svg>
           </div>
           
-          <!-- 删除按钮 -->
+          <!-- 删除按钮（隐藏）
           <button class="code-card-delete" @click.stop="deleteHistoryRecord(record.id)" title="删除"><X :size="12" /></button>
+          -->
           
           <!-- 转小红书按钮 -->
           <button v-if="record.content_type !== 'xhs'" class="code-card-action" @click.stop="openToXhs(record)"><ChevronRight :size="12" /> XHS</button>
@@ -550,7 +469,7 @@
       </div>
 
       <!-- 分页 -->
-      <div v-if="currentHistoryTab === 'blogs' && historyTotalPages > 1" class="history-pagination">
+      <div v-show="showBlogList && currentHistoryTab === 'blogs' && historyTotalPages > 1" class="history-pagination">
         <button :disabled="historyCurrentPage <= 1" @click="loadHistory(historyCurrentPage - 1)">« 上一页</button>
         <template v-for="page in paginationPages" :key="page">
           <span v-if="page === '...'" class="page-info">...</span>
@@ -561,7 +480,7 @@
       </div>
 
       <!-- 书籍列表 -->
-      <div v-if="currentHistoryTab === 'books'" class="books-grid">
+      <div v-show="showBlogList && currentHistoryTab === 'books'" class="books-grid">
         <div v-if="books.length === 0" class="history-empty">暂无教程书籍，点击「扫描聚合」自动生成</div>
         <div 
           v-for="book in books" 
@@ -638,7 +557,7 @@ import { useThemeStore } from '../stores/theme'
 import {
   Sun, Moon, BookOpen, Search, FileText, File, Users, Palette, Video, Monitor,
   Camera, Download, Rocket, Code, Image as ImageIcon, Star, Clock, Book, RefreshCw, Loader,
-  FileCheck, X, Square, ChevronRight, Zap, Settings, Target, Briefcase, Baby
+  FileCheck, X, Square, ChevronRight, ChevronDown, Zap, Settings, Target, Briefcase, Baby
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -664,7 +583,7 @@ const toggleTheme = () => {
 const articleType = ref('tutorial')
 const targetLength = ref('mini')
 const audienceAdaptation = ref('default')
-const imageStyle = ref('')
+const imageStyle = ref('cartoon')
 const generateCoverVideo = ref(false)
 const videoAspectRatio = ref('16:9')
 const imageStyles = ref<Array<{ id: string; name: string; icon: string }>>([{ id: '', name: '默认风格', icon: '🎨' }])
@@ -748,6 +667,11 @@ const stopResizeTerminal = () => {
     height: terminalHeight.value
   }))
 }
+
+const toggleTerminal = () => {
+  console.log('Toggle terminal clicked, current state:', terminalExpanded.value)
+  terminalExpanded.value = !terminalExpanded.value
+}
 const showResult = ref(false)
 const currentTaskId = ref<string | null>(null)
 let eventSource: EventSource | null = null
@@ -789,6 +713,7 @@ const historyTotalPages = ref(1)
 const historyTotal = ref(0)
 const historyContentType = ref('all')
 const showCoverPreview = ref(false)
+const showBlogList = ref(false) // 默认折叠博客列表
 const contentTypeFilters = [
   { value: 'all', label: '全部' },
   { value: 'blog', label: '📝 博客' },
@@ -1081,15 +1006,18 @@ const connectSSE = (taskId: string, isStorybook: boolean) => {
     progressText.value = '生成完成'
     isLoading.value = false
     
-    if (isStorybook) {
-      displayStorybookResult(d.outputs)
-    } else {
-      displayBlogResult(d)
-    }
-    
     loadHistory()
     eventSource?.close()
     eventSource = null
+    
+    // 延迟 1 秒后跳转到博客详情页
+    setTimeout(() => {
+      if (d.id) {
+        router.push(`/blog/${d.id}`)
+      } else if (d.book_id) {
+        router.push(`/book/${d.book_id}`)
+      }
+    }, 1000)
   })
   
   eventSource.addEventListener('error', (e: MessageEvent) => {
@@ -1254,7 +1182,7 @@ const downloadMarkdown = async () => {
     })
     
     if (!response.ok) {
-      const errorData = await response.json()
+        const errorData = await response.json()
       throw new Error(errorData.error || '导出失败')
     }
     
@@ -1664,6 +1592,7 @@ onMounted(async () => {
 
 /* 输入框卡片 */
 .code-input-card {
+  position: relative;
   width: 100%;
   background: var(--code-bg);
   border: 1px solid var(--code-border);
@@ -1671,6 +1600,109 @@ onMounted(async () => {
   overflow: hidden;
   margin-bottom: 24px;
   box-sizing: border-box;
+}
+
+/* Code Style 粒子背景 */
+.particles-bg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 0;
+}
+
+.code-particle {
+  position: absolute;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 500;
+  opacity: 0.08;
+  animation: code-float 12s ease-in-out infinite;
+}
+
+.code-particle.cp1 {
+  font-size: 28px;
+  color: var(--code-keyword);
+  top: 15%;
+  right: 8%;
+  animation-delay: 0s;
+}
+
+.code-particle.cp2 {
+  font-size: 24px;
+  color: var(--code-string);
+  top: 55%;
+  right: 12%;
+  animation-delay: -2s;
+}
+
+.code-particle.cp3 {
+  font-size: 20px;
+  color: var(--code-function);
+  top: 30%;
+  right: 22%;
+  animation-delay: -4s;
+}
+
+.code-particle.cp4 {
+  font-size: 18px;
+  color: var(--code-number);
+  top: 70%;
+  right: 5%;
+  animation-delay: -6s;
+}
+
+.code-particle.cp5 {
+  font-size: 22px;
+  color: var(--code-keyword);
+  top: 45%;
+  right: 28%;
+  animation-delay: -8s;
+}
+
+.code-particle.cp6 {
+  font-size: 16px;
+  color: var(--code-comment);
+  top: 20%;
+  right: 35%;
+  animation-delay: -3s;
+}
+
+.code-particle.cp7 {
+  font-size: 20px;
+  color: var(--code-string);
+  top: 75%;
+  right: 20%;
+  animation-delay: -5s;
+}
+
+.code-particle.cp8 {
+  font-size: 18px;
+  color: var(--code-function);
+  top: 10%;
+  right: 18%;
+  animation-delay: -7s;
+}
+
+@keyframes code-float {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
+    opacity: 0.06;
+  }
+  50% {
+    transform: translateY(-8px) rotate(3deg);
+    opacity: 0.12;
+  }
+}
+
+.code-input-header,
+.code-input-body,
+.code-input-footer,
+.code-input-docs {
+  position: relative;
+  z-index: 1;
 }
 .code-input-header {
   display: flex; align-items: center; gap: 12px;
@@ -2113,128 +2145,281 @@ onMounted(async () => {
   background: var(--code-surface); color: var(--code-text);
 }
 
-/* 右侧可折叠终端侧边栏 */
-.terminal-sidebar {
+/* 底部抽屉式进度面板 */
+.progress-drawer {
   position: fixed;
-  top: 50%;
-  right: 0;
-  transform: translateY(-50%);
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: calc(100% - 48px);
+  max-width: 1200px;
   z-index: 1000;
-  display: flex;
-  align-items: stretch;
   font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Consolas', monospace;
-}
-
-/* 折叠状态的 Tab 书签 */
-.terminal-tab {
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 16px 10px;
   background: var(--code-surface);
   border: 1px solid var(--code-border);
-  border-right: none;
-  border-radius: 12px 0 0 12px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  box-shadow: -4px 0 12px rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
 }
 
-.terminal-tab:hover {
-  background: var(--code-surface-hover);
-  padding-left: 14px;
+@media (min-width: 1440px) {
+  .progress-drawer {
+    max-width: 1352px;
+  }
 }
 
-.terminal-tab-icon {
+/* 最小化状态栏 */
+.progress-bar-mini {
   display: flex;
   align-items: center;
-  justify-content: center;
-  color: var(--code-keyword);
+  justify-content: space-between;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  height: 40px;
+  min-height: 40px;
+  max-height: 40px;
+  overflow: hidden;
 }
 
-.terminal-tab-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--code-text-secondary);
-  letter-spacing: 0.5px;
+.progress-bar-mini:hover {
+  background: var(--code-surface-hover);
 }
 
-.terminal-tab-status {
+.progress-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.progress-indicator {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: var(--code-border);
 }
 
-.terminal-tab-status.active {
+.progress-indicator.active {
   background: #22c55e;
   box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
   animation: pulse 1.5s ease-in-out infinite;
 }
 
-.terminal-tab-badge {
-  font-size: 10px;
-  padding: 2px 6px;
+.progress-status {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--code-keyword);
+  padding: 2px 8px;
+  background: rgba(139, 92, 246, 0.1);
+  border-radius: 4px;
+}
+
+.progress-text {
+  font-size: 12px;
+  color: var(--code-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 400px;
+}
+
+.progress-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.progress-logs {
+  font-size: 11px;
+  color: var(--code-text-muted);
+}
+
+.progress-stop-btn,
+.progress-toggle-btn,
+.progress-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--code-text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 11px;
+}
+
+.progress-stop-btn:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.progress-toggle-btn:hover,
+.progress-close-btn:hover {
+  background: var(--code-surface-hover);
+  color: var(--code-text);
+}
+
+.progress-toggle-btn svg {
+  transition: transform 0.2s ease;
+  transform: rotate(-90deg);
+}
+
+.progress-toggle-btn svg.rotate-down {
+  transform: rotate(90deg);
+}
+
+/* 展开的日志内容 */
+.progress-content {
+  overflow: hidden;
+  transition: height 0.3s ease;
+  background: var(--code-bg);
+  border-top: 1px solid var(--code-border);
+}
+
+.progress-resize-handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  cursor: ns-resize;
+  background: transparent;
+}
+
+.progress-resize-handle:hover {
   background: var(--code-keyword);
-  color: #fff;
-  border-radius: 10px;
+  opacity: 0.3;
+}
+
+.progress-logs-container {
+  height: 100%;
+  overflow-y: auto;
+  padding: 12px 16px;
+}
+
+.progress-task-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--code-surface);
+  border-radius: 6px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.progress-prompt {
+  color: #22c55e;
+  font-weight: bold;
+}
+
+.progress-command {
+  color: var(--code-keyword);
   font-weight: 600;
 }
 
-/* 终端内容区 */
-.terminal-content {
-  width: 0;
-  height: 0;
-  overflow: hidden;
-  background: var(--code-surface);
-  border: 1px solid var(--code-border);
-  border-right: none;
-  border-radius: 12px 0 0 12px;
-  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.15);
-  transition: width 0.3s ease, height 0.3s ease;
+.progress-arg {
+  color: var(--code-text-muted);
+}
+
+.progress-value {
+  color: var(--code-string);
+}
+
+.progress-task-id {
+  font-size: 10px;
+  color: var(--code-text-muted);
+  margin-left: auto;
+}
+
+/* 进度日志列表 */
+.progress-log-list {
   display: flex;
   flex-direction: column;
-  position: relative;
+  gap: 4px;
 }
 
-.terminal-sidebar.expanded .terminal-tab {
-  display: none;
+.progress-log-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  transition: background 0.2s ease;
 }
 
-.terminal-sidebar.expanded .terminal-content {
-  min-width: 300px;
-  max-width: 1000px;
-  min-height: 300px;
-  max-height: 900px;
+.progress-log-item:hover {
+  background: var(--code-surface);
 }
 
-/* 拖拽调整大小的边框 */
-.terminal-resize-handle {
-  position: absolute;
-  z-index: 10;
+.progress-log-time {
+  color: var(--code-text-muted);
+  font-size: 10px;
+  min-width: 60px;
 }
-.terminal-resize-handle.left {
-  left: 0;
-  top: 20px;
-  bottom: 20px;
-  width: 6px;
-  cursor: ew-resize;
+
+.progress-log-icon {
+  font-size: 12px;
+  min-width: 16px;
 }
-.terminal-resize-handle.top {
-  top: 0;
-  left: 20px;
-  right: 0;
-  height: 6px;
-  cursor: ns-resize;
+
+.progress-log-icon.success { color: #22c55e; }
+.progress-log-icon.error { color: #ef4444; }
+.progress-log-icon.warning { color: #f59e0b; }
+.progress-log-icon.info { color: var(--code-text-secondary); }
+.progress-log-icon.stream { color: var(--code-keyword); }
+
+.progress-log-msg {
+  color: var(--code-text);
+  flex: 1;
+  word-break: break-word;
 }
-.terminal-resize-handle.bottom {
-  bottom: 0;
-  left: 20px;
-  right: 0;
-  height: 6px;
-  cursor: ns-resize;
+
+.progress-log-detail {
+  margin-top: 4px;
+  padding: 8px;
+  background: var(--code-surface);
+  border-radius: 4px;
+  overflow-x: auto;
+}
+
+.progress-log-detail pre {
+  margin: 0;
+  font-size: 11px;
+  color: var(--code-text-secondary);
+  white-space: pre-wrap;
+}
+
+/* 加载动画 */
+.progress-loading-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  color: var(--code-text-secondary);
+}
+
+.progress-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--code-border);
+  border-top-color: var(--code-keyword);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.progress-loading-text {
+  font-size: 12px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 .terminal-resize-handle.corner-top-left {
   top: 0;
@@ -2651,7 +2836,118 @@ onMounted(async () => {
   max-width: 1248px;
   margin: 0 auto;
   padding: 24px;
+}
+
+/* 博客列表折叠按钮 - 简约设计 */
+.blog-list-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 12px 16px;
+  background: var(--code-surface);
+  border: 1px solid var(--code-border);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--code-text);
+  font-family: 'JetBrains Mono', monospace;
+  transition: all 0.2s ease;
+  margin-bottom: 12px;
   box-sizing: border-box;
+  text-align: left;
+}
+
+.blog-list-toggle:hover {
+  background: var(--code-surface-hover);
+  color: var(--code-text);
+}
+
+.blog-list-toggle > svg {
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+  color: var(--code-text-muted);
+}
+
+.blog-list-toggle > svg.rotate-up {
+  transform: rotate(180deg);
+}
+
+.toggle-label {
+  color: var(--code-text-secondary);
+}
+
+.toggle-count {
+  background: var(--code-surface);
+  color: var(--code-text-muted);
+  padding: 2px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+}
+
+.toggle-stats {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  color: var(--code-text-secondary);
+  font-size: 11px;
+  flex: 1;
+  overflow: visible;
+}
+
+.stats-cmd {
+  color: var(--code-keyword);
+  font-weight: bold;
+}
+
+.stats-label {
+  color: var(--code-text-secondary);
+}
+
+.stats-value {
+  color: var(--code-number);
+  font-weight: bold;
+}
+
+.stats-text {
+  color: var(--code-text-secondary);
+}
+
+.stats-sep {
+  color: var(--code-text-muted);
+  margin: 0 2px;
+}
+
+.sort-icon {
+  color: var(--code-text-muted);
+  display: inline;
+}
+
+.sort-label {
+  color: var(--code-text-secondary);
+}
+
+/* 历史记录工具栏 */
+.history-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--code-border);
+}
+
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 /* 终端风格头部 */

@@ -93,7 +93,7 @@ class VideoSequenceOrchestrator:
         video_service,  # UnifiedVideoService（统一入口）
         prompt_manager,
         oss_service=None,
-        video_model: str = "sora2"  # 默认使用 sora2
+        video_model: str = "veo3"  # 默认使用 veo3
     ):
         self.llm = llm_client
         self.video_service = video_service  # UnifiedVideoService

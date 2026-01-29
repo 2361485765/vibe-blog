@@ -388,6 +388,7 @@ def create_app(config_class=None):
                     'reviewer': os.environ.get('REVIEWER_ENABLED', 'false').lower() == 'true',
                     'book_scan': os.environ.get('BOOK_SCAN_ENABLED', 'false').lower() == 'true',
                     'cover_video': os.environ.get('COVER_VIDEO_ENABLED', 'true').lower() == 'true',
+                    'xhs_tab': os.environ.get('XHS_TAB_ENABLED', 'false').lower() == 'true',
                 },
                 # 兼容旧版（后续可删除）
                 'reviewer_enabled': os.environ.get('REVIEWER_ENABLED', 'false').lower() == 'true',
@@ -988,6 +989,7 @@ def create_app(config_class=None):
             document_ids = data.get('document_ids', [])  # 文档 ID 列表
             image_style = data.get('image_style', '')  # 图片风格 ID
             generate_cover_video = data.get('generate_cover_video', False)  # 是否生成封面动画
+            video_aspect_ratio = data.get('video_aspect_ratio', '16:9')  # 视频尺寸（16:9 或 9:16）
             custom_config = data.get('custom_config', None)  # 自定义配置（仅当 target_length='custom' 时使用）
             
             # 验证自定义配置
@@ -1044,6 +1046,7 @@ def create_app(config_class=None):
                 document_knowledge=document_knowledge,
                 image_style=image_style,
                 generate_cover_video=generate_cover_video,
+                video_aspect_ratio=video_aspect_ratio,
                 custom_config=custom_config,
                 task_manager=task_manager,
                 app=current_app._get_current_object()
@@ -1389,11 +1392,11 @@ def create_app(config_class=None):
                 url = base_url + url
             
             logger.info(f"下载图片: {original_url} -> {url}")
-            response = requests.get(url, timeout=timeout)
+            response = requests.get(url, timeout=timeout, allow_redirects=True)
             response.raise_for_status()
             return response.content
         except Exception as e:
-            logger.warning(f"下载图片失败 {url}: {e}")
+            logger.warning(f"下载图片失败 {original_url}: {e}")
             return None
     
     def get_image_filename(url):
@@ -2137,7 +2140,7 @@ def create_app(config_class=None):
             "style": "ghibli_summer",  // 可选: ghibli_summer, cartoon, scientific
             "target_duration": 60,      // 可选: 目标时长（秒）
             "bgm_url": "...",          // 可选: 背景音乐 URL
-            "video_model": "sora2"     // 可选: sora2 或 veo3，默认 sora2
+            "video_model": "veo3"      // 可选: veo3 或 sora2，默认 veo3
         }
         """
         try:
@@ -2154,7 +2157,7 @@ def create_app(config_class=None):
             style = data.get('style', 'ghibli_summer')
             target_duration = data.get('target_duration', 60.0)
             bgm_url = data.get('bgm_url')
-            video_model = data.get('video_model', 'sora2')  # 默认使用 Sora2
+            video_model = data.get('video_model', 'veo3')  # 默认使用 Veo3
             
             # 初始化小红书服务
             from services.xhs_service import XHSService

@@ -45,7 +45,10 @@ env/
 .DS_Store
 *.sublime-project
 *.sublime-workspace
-/frontend
+# /frontend
+# .windsurf/
+# .shared/
+/outputs
 
 # 日志文件
 *.log

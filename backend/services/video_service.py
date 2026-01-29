@@ -312,7 +312,7 @@ class UnifiedVideoService:
     def __init__(self, veo3_service: Optional[Veo3Service] = None, sora2_service=None):
         self.veo3_service = veo3_service
         self.sora2_service = sora2_service
-        self._default_model = 'sora2'  # 默认使用 Sora2
+        self._default_model = 'veo3'  # 默认使用 Veo3
         
         logger.info(f"UnifiedVideoService 初始化: veo3={veo3_service is not None}, sora2={sora2_service is not None}")
     
@@ -334,9 +334,9 @@ class UnifiedVideoService:
         elif model_lower in self.VEO3_MODELS:
             return self.veo3_service
         else:
-            # 默认使用 Sora2
-            logger.warning(f"未知模型: {model}，使用默认 Sora2")
-            return self.sora2_service
+            # 默认使用 Veo3
+            logger.warning(f"未知模型: {model}，使用默认 Veo3")
+            return self.veo3_service
     
     def _get_model_name(self, model: str) -> str:
         """获取模型显示名称"""

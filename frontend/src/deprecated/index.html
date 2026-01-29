@@ -776,7 +776,7 @@
         <div class="logo"><span>vibe-blog</span></div>
         <div class="nav-tabs">
             <div class="tab active">📝 长文博客</div>
-            <a href="/xhs.html" class="tab" style="text-decoration: none;">📕 小红书创作</a>
+            <a href="/xhs.html" class="tab" id="xhsTab" style="text-decoration: none; display: none;">📕 小红书创作</a>
             <a href="/reviewer" class="tab" id="reviewerTab" style="text-decoration: none; display: none;">🔍 教程评估</a>
         </div>
     </nav>
@@ -950,6 +950,22 @@
                         <span style="font-size: 13px; color: #666;">🎬 生成封面动画</span>
                     </label>
                     <span style="font-size: 11px; color: #999;" title="将封面图转换为循环播放的动画视频（约需 2-5 分钟）">ⓘ</span>
+                </div>
+                
+                <!-- 视频尺寸选择 -->
+                <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
+                    <label style="font-size: 13px; color: #666;">📺 视频尺寸:</label>
+                    <select id="videoAspectRatioSelect" style="
+                        padding: 6px 10px;
+                        border: 1px solid #ddd;
+                        border-radius: 6px;
+                        font-size: 13px;
+                        background: white;
+                        cursor: pointer;
+                    ">
+                        <option value="16:9">横屏(16:9)</option>
+                        <option value="9:16">竖屏(9:16)</option>
+                    </select>
                 </div>
             </div>
             
@@ -1135,6 +1151,11 @@
                     if (features.reviewer) {
                         const reviewerTab = document.getElementById('reviewerTab');
                         if (reviewerTab) reviewerTab.style.display = 'block';
+                    }
+                    // 根据配置显示/隐藏小红书 Tab
+                    if (features.xhs_tab) {
+                        const xhsTab = document.getElementById('xhsTab');
+                        if (xhsTab) xhsTab.style.display = 'block';
                     }
                     // 根据配置显示/隐藏封面动画选项
                     if (!features.cover_video) {
@@ -1822,7 +1843,8 @@
                         topic: topic,
                         article_type: articleType,
                         audience_adaptation: getAudienceAdaptation(),
-                        generate_cover_video: getGenerateCoverVideo()
+                        generate_cover_video: getGenerateCoverVideo(),
+                        video_aspect_ratio: getVideoAspectRatio()
                     }
                     : {
                         topic: topic,
@@ -1833,6 +1855,7 @@
                         document_ids: getReadyDocumentIds(),
                         image_style: getSelectedImageStyle(),
                         generate_cover_video: getGenerateCoverVideo(),
+                        video_aspect_ratio: getVideoAspectRatio(),
                         custom_config: getCustomConfig()
                     };
                 
@@ -2023,6 +2046,40 @@
 
             const pagesContainer = document.getElementById('resultPages');
             pagesContainer.innerHTML = '';
+
+            // 显示封面视频（如果有）
+            if (result.cover_video) {
+                const videoSrc = result.cover_video.startsWith('http') 
+                    ? result.cover_video 
+                    : (result.cover_video.startsWith('/') ? result.cover_video : `/outputs/videos/${result.cover_video.split('/').pop()}`);
+                const posterSrc = result.cover_image 
+                    ? (result.cover_image.startsWith('http') ? result.cover_image : `/outputs/images/${result.cover_image.split('/').pop()}`) 
+                    : '';
+                
+                const videoEl = document.createElement('div');
+                videoEl.className = 'page-item';
+                videoEl.innerHTML = `
+                    <div class="page-header">
+                        <div class="page-number">🎬</div>
+                        <div class="page-title">封面动画</div>
+                        <div style="margin-left: auto; display: flex; gap: 10px;">
+                            <button class="download-video-btn" style="padding: 8px 16px; background: linear-gradient(135deg, #9333EA, #7C3AED); border: none; border-radius: 8px; color: #fff; font-size: 13px; cursor: pointer;">
+                                📥 下载视频
+                            </button>
+                        </div>
+                    </div>
+                    <div style="display: flex; justify-content: center; padding: 20px; background: #f8f9fa; border-radius: 8px;">
+                        <video src="${videoSrc}" ${posterSrc ? `poster="${posterSrc}"` : ''} controls autoplay loop muted playsinline style="max-width: 100%; max-height: 400px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);"></video>
+                    </div>
+                `;
+                pagesContainer.appendChild(videoEl);
+                
+                // 为下载按钮添加事件
+                const downloadVideoBtn = videoEl.querySelector('.download-video-btn');
+                if (downloadVideoBtn) {
+                    downloadVideoBtn.addEventListener('click', () => downloadCoverVideo(videoSrc));
+                }
+            }
 
             // 显示 Markdown 内容
             if (result.markdown) {
@@ -2228,6 +2285,31 @@
                     }
                 }
             }, 200);
+        }
+
+        // 下载封面视频
+        async function downloadCoverVideo(videoSrc) {
+            try {
+                const title = currentBlogResult?.outline?.title || 'cover';
+                const safeTitle = title.replace(/[^a-zA-Z0-9\u4e00-\u9fa5_-]/g, '_').substring(0, 50);
+                const filename = `${safeTitle}_封面动画_${new Date().toISOString().slice(0, 10)}.mp4`;
+                
+                // 获取视频并下载
+                const response = await fetch(videoSrc);
+                const blob = await response.blob();
+                
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            } catch (error) {
+                console.error('下载视频失败:', error);
+                alert('下载视频失败: ' + error.message);
+            }
         }
 
         // 下载 Markdown (包含本地图片)
@@ -2784,7 +2866,9 @@
                         sections_count: record.sections_count,
                         code_blocks_count: record.code_blocks_count,
                         images_count: record.images_count,
-                        review_score: record.review_score
+                        review_score: record.review_score,
+                        cover_video: record.cover_video,
+                        cover_image: record.cover_image
                     });
                 }
             } catch (error) {
@@ -3075,6 +3159,12 @@
         function getGenerateCoverVideo() {
             const checkbox = document.getElementById('generateCoverVideoCheckbox');
             return checkbox ? checkbox.checked : false;
+        }
+        
+        // 获取视频尺寸
+        function getVideoAspectRatio() {
+            const select = document.getElementById('videoAspectRatioSelect');
+            return select ? select.value : '16:9';
         }
         
         // ========== vibe-reviewer 功能 ==========

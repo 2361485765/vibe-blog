@@ -1,0 +1,117 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #app {
+  width: 100%;
+  height: 100%;
+}
+
+body {
+  font-family: 'JetBrains Mono', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  color: #1e293b;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(139, 92, 246, 0.3);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(139, 92, 246, 0.5);
+}
+
+/* 链接样式 */
+a {
+  color: #8b5cf6;
+  text-decoration: none;
+  transition: all 0.3s;
+}
+
+a:hover {
+  color: #7c3aed;
+}
+
+/* 按钮样式 */
+button {
+  font-family: 'JetBrains Mono', monospace;
+  transition: all 0.3s;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 输入框样式 */
+input, textarea {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+input::placeholder, textarea::placeholder {
+  color: #cbd5e1;
+}
+
+/* 动画 */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes blink {
+  0%, 49%, 100% {
+    opacity: 1;
+  }
+  50%, 99% {
+    opacity: 0.3;
+  }
+}
+
+/* 响应式 */
+@media (max-width: 768px) {
+  body {
+    font-size: 14px;
+  }
+}

@@ -1063,7 +1063,7 @@ class XHSService:
         target_duration: float = 60.0,
         bgm_url: Optional[str] = None,
         progress_callback: Optional[Callable[[int, str], None]] = None,
-        video_model: str = "sora2"  # 视频模型: sora2 或 veo3
+        video_model: str = "veo3"  # 视频模型: veo3 或 sora2
     ) -> Optional[str]:
         """
         从图片序列生成讲解视频
