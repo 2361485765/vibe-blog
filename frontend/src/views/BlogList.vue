@@ -2,7 +2,7 @@
   <div class="blog-list-container">
     <!-- 导航栏 -->
     <nav class="navbar">
-      <router-link to="/" class="logo">> vibe-blog</router-link>
+      <a href="https://github.com/datawhalechina/vibe-blog" target="_blank" rel="noopener noreferrer" class="logo" title="GitHub - vibe-blog">> vibe-blog</a>
       <div class="nav-links">
         <a href="#about">$ about</a>
         <a href="#features">$ features</a>
@@ -93,6 +93,9 @@
         <p>$ No blogs found</p>
       </div>
     </div>
+
+    <!-- 底部备案信息 -->
+    <Footer />
   </div>
 </template>
 
@@ -100,6 +103,7 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useBlogStore } from '../stores/blog'
+import Footer from '../components/Footer.vue'
 
 const router = useRouter()
 

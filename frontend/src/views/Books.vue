@@ -11,6 +11,7 @@
         <span class="terminal-title">$ ls ~/books/</span>
       </div>
       <div class="terminal-nav-right">
+        <a href="https://github.com/datawhalechina/vibe-blog" target="_blank" rel="noopener noreferrer" class="nav-cmd" title="GitHub - vibe-blog">GitHub</a>
         <router-link to="/" class="nav-cmd">cd ~/blog</router-link>
         <button class="theme-toggle" @click="isDark = !isDark">{{ isDark ? '☀️' : '🌙' }}</button>
       </div>
@@ -135,12 +136,16 @@
       <span class="toast-icon">{{ toast.type === 'success' ? '✓' : toast.type === 'error' ? '✗' : 'ℹ' }}</span>
       {{ toast.message }}
     </div>
+
+    <!-- 底部备案信息 -->
+    <Footer />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import Footer from '../components/Footer.vue'
 
 const router = useRouter()
 const isDark = ref(false)

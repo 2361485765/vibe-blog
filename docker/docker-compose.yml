@@ -32,7 +32,19 @@ services:
       timeout: 10s
       retries: 3
 
-  # Nginx 反向代理 (可选，用于生产环境)
+  # Vue 前端 - vibe-blog
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: ../docker/Dockerfile.frontend
+    container_name: vibe-blog-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # Nginx 反向代理 (生产环境)
   nginx:
     image: nginx:alpine
     container_name: vibe-blog-nginx
@@ -44,4 +56,5 @@ services:
       - ../ssl:/etc/nginx/ssl:ro
     depends_on:
       - backend
+      - frontend
     restart: unless-stopped

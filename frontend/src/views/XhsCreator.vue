@@ -11,6 +11,7 @@
         <span class="terminal-title">$ xhs-creator --generate</span>
       </div>
       <div class="terminal-nav-right">
+        <a href="https://github.com/datawhalechina/vibe-blog" target="_blank" rel="noopener noreferrer" class="nav-cmd" title="GitHub - vibe-blog">GitHub</a>
         <router-link to="/" class="nav-cmd">cd ~/blog</router-link>
         <button class="theme-toggle" @click="isDark = !isDark">{{ isDark ? '☀️' : '🌙' }}</button>
       </div>
@@ -299,6 +300,9 @@
         </div>
       </div>
     </div>
+
+    <!-- 底部备案信息 -->
+    <Footer />
   </div>
 </template>
 
@@ -307,6 +311,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import * as api from '../services/api'
 import { parseCookies } from '../utils/helpers'
+import Footer from '../components/Footer.vue'
 
 const route = useRoute()
 const isDark = ref(false)

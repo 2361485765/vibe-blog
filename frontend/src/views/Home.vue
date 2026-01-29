@@ -4,7 +4,7 @@
 
     <!-- 导航栏 -->
     <nav class="navbar">
-      <div class="logo">&lt;vibe-blog /&gt;</div>
+      <a href="https://github.com/datawhalechina/vibe-blog" target="_blank" rel="noopener noreferrer" class="logo" title="GitHub - vibe-blog">&lt;vibe-blog /&gt;</a>
       <div class="nav-actions">
         <router-link v-if="appConfig.features?.xhs_tab" to="/xhs" class="nav-link">
           <BookOpen :size="14" />
@@ -543,6 +543,9 @@
         </div>
       </div>
     </div>
+
+    <!-- 底部备案信息 -->
+    <Footer />
   </div>
 </template>
 
@@ -554,6 +557,7 @@ import hljs from 'highlight.js'
 import * as api from '../services/api'
 import { formatFileSize, formatWordCount, getStatusText, isSpinningStatus, getStageIcon, formatTime } from '../utils/helpers'
 import { useThemeStore } from '../stores/theme'
+import Footer from '../components/Footer.vue'
 import {
   Sun, Moon, BookOpen, Search, FileText, File, Users, Palette, Video, Monitor,
   Camera, Download, Rocket, Code, Image as ImageIcon, Star, Clock, Book, RefreshCw, Loader,
@@ -708,12 +712,12 @@ const markdownContentRef = ref<HTMLElement | null>(null)
 const currentHistoryTab = ref('blogs')
 const historyRecords = ref<api.HistoryRecord[]>([])
 const historyCurrentPage = ref(1)
-const historyPageSize = ref(50)
+const historyPageSize = ref(9)
 const historyTotalPages = ref(1)
 const historyTotal = ref(0)
 const historyContentType = ref('all')
 const showCoverPreview = ref(false)
-const showBlogList = ref(false) // 默认折叠博客列表
+const showBlogList = ref(true) // 默认打开博客列表
 const contentTypeFilters = [
   { value: 'all', label: '全部' },
   { value: 'blog', label: '📝 博客' },

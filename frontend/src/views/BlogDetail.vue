@@ -380,6 +380,9 @@
         </div>
       </div>
     </div>
+
+    <!-- 底部备案信息 -->
+    <Footer />
   </div>
 </template>
 
@@ -389,6 +392,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { marked } from 'marked'
 import mermaid from 'mermaid'
 import { useThemeStore } from '../stores/theme'
+import Footer from '../components/Footer.vue'
 
 const route = useRoute()
 const router = useRouter()

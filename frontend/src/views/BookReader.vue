@@ -11,6 +11,7 @@
         <span class="terminal-title">$ cat {{ bookData?.title || 'book' }}/README.md</span>
       </div>
       <div class="terminal-nav-right">
+        <a href="https://github.com/datawhalechina/vibe-blog" target="_blank" rel="noopener noreferrer" class="nav-cmd" title="GitHub - vibe-blog">GitHub</a>
         <router-link to="/books" class="nav-cmd">cd ~/books</router-link>
         <button class="theme-toggle" @click="isDark = !isDark">{{ isDark ? '☀️' : '🌙' }}</button>
       </div>
@@ -140,6 +141,9 @@
         </div>
       </main>
     </div>
+
+    <!-- 底部备案信息 -->
+    <Footer />
   </div>
 </template>
 
@@ -147,6 +151,7 @@
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { marked } from 'marked'
+import Footer from '../components/Footer.vue'
 
 const route = useRoute()
 const isDark = ref(false)
