@@ -411,11 +411,17 @@ class BlogGenerator:
         """判断是否需要修订"""
         target_length = state.get('target_length', 'medium')
         
-        # Mini/Short 模式只处理 high 级别问题
+        # Mini/Short 模式只处理 high 级别问题，且最多修订 1 轮
         if target_length in ('mini', 'short'):
+            revision_count = state.get('revision_count', 0)
+            # Mini 模式最多修订 1 轮
+            if revision_count >= 1:
+                logger.info(f"[{target_length}] 模式：已达到最大修订轮数 (1)，跳过修订")
+                return "assemble"
+            
             review_issues = state.get('review_issues', [])
             high_issues = [i for i in review_issues if i.get('severity') == 'high']
-            if high_issues and state.get('revision_count', 0) < self.max_revision_rounds:
+            if high_issues:
                 logger.info(f"[{target_length}] 模式：只处理 {len(high_issues)} 个 high 级别问题")
                 # 只保留 high 级别问题
                 state['review_issues'] = high_issues
