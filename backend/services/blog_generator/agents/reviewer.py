@@ -59,11 +59,9 @@ class ReviewerAgent:
         )
         
         # 输出完整的 Reviewer Prompt 到日志（用于诊断）
-        logger.debug("=" * 80)
-        logger.debug("【Reviewer Prompt 完整内容】")
-        logger.debug("=" * 80)
-        logger.debug(prompt)
-        logger.debug("=" * 80)
+        logger.info(f"[Reviewer] ========== 完整 Prompt ({len(prompt)} 字) ==========")
+        logger.debug(prompt)  # 完整 Prompt 仍用 debug 级别，避免日志过长
+        logger.info(f"[Reviewer] ========== Prompt 结束 ==========")
         
         try:
             response = self.llm.chat(

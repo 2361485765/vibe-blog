@@ -70,11 +70,9 @@ class WriterAgent:
         )
         
         # 输出完整的 Writer Prompt 到日志（用于诊断）
-        logger.debug("=" * 80)
-        logger.debug(f"【Writer Prompt - 章节: {section_outline.get('title', 'Unknown')}】")
-        logger.debug("=" * 80)
-        logger.debug(prompt)
-        logger.debug("=" * 80)
+        logger.info(f"[Writer] ========== 章节 Prompt ({len(prompt)} 字): {section_outline.get('title', 'Unknown')} ==========")
+        logger.debug(prompt)  # 完整 Prompt 仍用 debug 级别
+        logger.info(f"[Writer] ========== Prompt 结束 ==========")
         
         try:
             response = self.llm.chat(
@@ -124,6 +122,11 @@ class WriterAgent:
             original_content=original_content,
             vague_points=vague_points
         )
+        
+        # 输出深化 Prompt 信息
+        logger.info(f"[Writer] ========== 深化 Prompt ({len(prompt)} 字): {display_title} ==========")
+        logger.debug(prompt)
+        logger.info(f"[Writer] ========== Prompt 结束 ==========")
         
         try:
             response = self.llm.chat(

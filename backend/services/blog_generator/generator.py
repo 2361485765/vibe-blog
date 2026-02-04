@@ -22,6 +22,26 @@ from .agents.search_coordinator import SearchCoordinator
 logger = logging.getLogger(__name__)
 
 
+def _get_content_word_count(state: Dict[str, Any]) -> int:
+    """计算当前 state 中所有章节内容的总字数"""
+    sections = state.get('sections', [])
+    total = 0
+    for section in sections:
+        content = section.get('content', '')
+        if content:
+            total += len(content)
+    return total
+
+
+def _log_word_count_diff(agent_name: str, before: int, after: int):
+    """记录字数变化的 diff"""
+    diff = after - before
+    if diff >= 0:
+        logger.info(f"📊 [{agent_name}] 字数变化: {before} → {after} (+{diff} 字)")
+    else:
+        logger.info(f"📊 [{agent_name}] 字数变化: {before} → {after} ({diff} 字)")
+
+
 class BlogGenerator:
     """
     长文博客生成器
@@ -158,7 +178,10 @@ class BlogGenerator:
     def _writer_node(self, state: SharedState) -> SharedState:
         """内容撰写节点"""
         logger.info("=== Step 3: 内容撰写 ===")
+        before_count = _get_content_word_count(state)
         result = self.writer.run(state)
+        after_count = _get_content_word_count(result)
+        _log_word_count_diff("Writer", before_count, after_count)
         # 初始化累积知识（首次写作后）
         if not result.get('accumulated_knowledge'):
             result['accumulated_knowledge'] = result.get('background_knowledge', '')
@@ -279,6 +302,7 @@ class BlogGenerator:
     def _deepen_content_node(self, state: SharedState) -> SharedState:
         """内容深化节点"""
         logger.info("=== Step 4.1: 内容深化 ===")
+        before_count = _get_content_word_count(state)
         state['questioning_count'] = state.get('questioning_count', 0) + 1
         
         # 统计需要深化的章节
@@ -312,6 +336,8 @@ class BlogGenerator:
                     logger.info(f"章节深化完成: {section_title} (+{new_length - original_length} 字)")
                     break
         
+        after_count = _get_content_word_count(state)
+        _log_word_count_diff("内容深化", before_count, after_count)
         return state
     
     def _coder_and_artist_node(self, state: SharedState) -> SharedState:
@@ -363,6 +389,7 @@ class BlogGenerator:
     def _revision_node(self, state: SharedState) -> SharedState:
         """修订节点"""
         logger.info("=== Step 7.1: 修订 ===")
+        before_count = _get_content_word_count(state)
         state['revision_count'] = state.get('revision_count', 0) + 1
         
         # 根据审核问题修订内容
@@ -393,6 +420,8 @@ class BlogGenerator:
                     section['content'] = enhanced_content
                     break
         
+        after_count = _get_content_word_count(state)
+        _log_word_count_diff("修订", before_count, after_count)
         return state
     
     def _assembler_node(self, state: SharedState) -> SharedState:
