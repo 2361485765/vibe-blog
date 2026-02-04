@@ -567,6 +567,67 @@
             font-size: 12px;
             opacity: 0.8;
         }
+        /* 内容类型筛选按钮 */
+        .filter-btn {
+            padding: 4px 12px;
+            border: 1px solid rgba(0,0,0,0.1);
+            background: rgba(255,255,255,0.6);
+            border-radius: 16px;
+            cursor: pointer;
+            font-size: 12px;
+            color: #666;
+            transition: all 0.2s;
+        }
+        .filter-btn:hover {
+            background: rgba(0,0,0,0.05);
+        }
+        .filter-btn.active {
+            background: linear-gradient(135deg, #FF6B35, #FFD166);
+            color: white;
+            border-color: #FF6B35;
+        }
+        /* 小红书记录卡片样式 */
+        .history-card.xhs-card {
+            border: 1px solid rgba(255,107,53,0.3);
+        }
+        .history-card.xhs-card .history-cover {
+            background: linear-gradient(135deg, #FFF8F0, #FFE4D6);
+        }
+        .xhs-badge {
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            background: linear-gradient(135deg, #FF6B35, #FFD166);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 10px;
+            font-weight: 600;
+            z-index: 2;
+        }
+        /* 转小红书按钮 */
+        .to-xhs-btn {
+            position: absolute;
+            bottom: 8px;
+            right: 8px;
+            background: linear-gradient(135deg, #FF6B35, #FFD166);
+            color: white;
+            border: none;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 500;
+            cursor: pointer;
+            z-index: 3;
+            opacity: 0;
+            transition: opacity 0.2s, transform 0.2s;
+        }
+        .history-card:hover .to-xhs-btn {
+            opacity: 1;
+        }
+        .to-xhs-btn:hover {
+            transform: scale(1.05);
+        }
         .scan-books-btn {
             padding: 8px 16px;
             border: 1px solid #667eea;
@@ -715,6 +776,7 @@
         <div class="logo"><span>vibe-blog</span></div>
         <div class="nav-tabs">
             <div class="tab active">📝 长文博客</div>
+            <a href="/xhs.html" class="tab" id="xhsTab" style="text-decoration: none; display: none;">📕 小红书创作</a>
             <a href="/reviewer" class="tab" id="reviewerTab" style="text-decoration: none; display: none;">🔍 教程评估</a>
         </div>
     </nav>
@@ -889,6 +951,22 @@
                     </label>
                     <span style="font-size: 11px; color: #999;" title="将封面图转换为循环播放的动画视频（约需 2-5 分钟）">ⓘ</span>
                 </div>
+                
+                <!-- 视频尺寸选择 -->
+                <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
+                    <label style="font-size: 13px; color: #666;">📺 视频尺寸:</label>
+                    <select id="videoAspectRatioSelect" style="
+                        padding: 6px 10px;
+                        border: 1px solid #ddd;
+                        border-radius: 6px;
+                        font-size: 13px;
+                        background: white;
+                        cursor: pointer;
+                    ">
+                        <option value="16:9">横屏(16:9)</option>
+                        <option value="9:16">竖屏(9:16)</option>
+                    </select>
+                </div>
             </div>
             
             <!-- 自定义配置面板（仅在选择自定义时显示） -->
@@ -1019,6 +1097,12 @@
                         📚 教程列表 <span class="books-total" id="booksTotal"></span>
                     </button>
                 </div>
+                <!-- 内容类型筛选（仅在博客Tab下显示） -->
+                <div class="content-type-filter" id="contentTypeFilter" style="display: flex; gap: 6px; margin-left: 16px;">
+                    <button class="filter-btn active" data-type="all" onclick="filterByContentType('all')">全部</button>
+                    <button class="filter-btn" data-type="blog" onclick="filterByContentType('blog')">📝 博客</button>
+                    <button class="filter-btn" data-type="xhs" onclick="filterByContentType('xhs')">📕 小红书</button>
+                </div>
             </div>
             <button class="scan-books-btn" id="scanBooksBtn" style="display: none;" onclick="regenerateBooks()">
                 🔄 扫描聚合
@@ -1054,6 +1138,7 @@
         let historyPageSize = 50;
         let historyTotalPages = 1;
         let historyTotal = 0;
+        let historyContentType = 'all';  // 内容类型筛选：'all' | 'blog' | 'xhs'
         
         // ========== 加载前端配置 ==========
         (async function loadFrontendConfig() {
@@ -1066,6 +1151,11 @@
                     if (features.reviewer) {
                         const reviewerTab = document.getElementById('reviewerTab');
                         if (reviewerTab) reviewerTab.style.display = 'block';
+                    }
+                    // 根据配置显示/隐藏小红书 Tab
+                    if (features.xhs_tab) {
+                        const xhsTab = document.getElementById('xhsTab');
+                        if (xhsTab) xhsTab.style.display = 'block';
                     }
                     // 根据配置显示/隐藏封面动画选项
                     if (!features.cover_video) {
@@ -1753,7 +1843,8 @@
                         topic: topic,
                         article_type: articleType,
                         audience_adaptation: getAudienceAdaptation(),
-                        generate_cover_video: getGenerateCoverVideo()
+                        generate_cover_video: getGenerateCoverVideo(),
+                        video_aspect_ratio: getVideoAspectRatio()
                     }
                     : {
                         topic: topic,
@@ -1764,6 +1855,7 @@
                         document_ids: getReadyDocumentIds(),
                         image_style: getSelectedImageStyle(),
                         generate_cover_video: getGenerateCoverVideo(),
+                        video_aspect_ratio: getVideoAspectRatio(),
                         custom_config: getCustomConfig()
                     };
                 
@@ -1954,6 +2046,40 @@
 
             const pagesContainer = document.getElementById('resultPages');
             pagesContainer.innerHTML = '';
+
+            // 显示封面视频（如果有）
+            if (result.cover_video) {
+                const videoSrc = result.cover_video.startsWith('http') 
+                    ? result.cover_video 
+                    : (result.cover_video.startsWith('/') ? result.cover_video : `/outputs/videos/${result.cover_video.split('/').pop()}`);
+                const posterSrc = result.cover_image 
+                    ? (result.cover_image.startsWith('http') ? result.cover_image : `/outputs/images/${result.cover_image.split('/').pop()}`) 
+                    : '';
+                
+                const videoEl = document.createElement('div');
+                videoEl.className = 'page-item';
+                videoEl.innerHTML = `
+                    <div class="page-header">
+                        <div class="page-number">🎬</div>
+                        <div class="page-title">封面动画</div>
+                        <div style="margin-left: auto; display: flex; gap: 10px;">
+                            <button class="download-video-btn" style="padding: 8px 16px; background: linear-gradient(135deg, #9333EA, #7C3AED); border: none; border-radius: 8px; color: #fff; font-size: 13px; cursor: pointer;">
+                                📥 下载视频
+                            </button>
+                        </div>
+                    </div>
+                    <div style="display: flex; justify-content: center; padding: 20px; background: #f8f9fa; border-radius: 8px;">
+                        <video src="${videoSrc}" ${posterSrc ? `poster="${posterSrc}"` : ''} controls autoplay loop muted playsinline style="max-width: 100%; max-height: 400px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);"></video>
+                    </div>
+                `;
+                pagesContainer.appendChild(videoEl);
+                
+                // 为下载按钮添加事件
+                const downloadVideoBtn = videoEl.querySelector('.download-video-btn');
+                if (downloadVideoBtn) {
+                    downloadVideoBtn.addEventListener('click', () => downloadCoverVideo(videoSrc));
+                }
+            }
 
             // 显示 Markdown 内容
             if (result.markdown) {
@@ -2159,6 +2285,31 @@
                     }
                 }
             }, 200);
+        }
+
+        // 下载封面视频
+        async function downloadCoverVideo(videoSrc) {
+            try {
+                const title = currentBlogResult?.outline?.title || 'cover';
+                const safeTitle = title.replace(/[^a-zA-Z0-9\u4e00-\u9fa5_-]/g, '_').substring(0, 50);
+                const filename = `${safeTitle}_封面动画_${new Date().toISOString().slice(0, 10)}.mp4`;
+                
+                // 获取视频并下载
+                const response = await fetch(videoSrc);
+                const blob = await response.blob();
+                
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            } catch (error) {
+                console.error('下载视频失败:', error);
+                alert('下载视频失败: ' + error.message);
+            }
         }
 
         // 下载 Markdown (包含本地图片)
@@ -2468,11 +2619,11 @@
 
         // ========== 历史记录功能 ==========
         
-        // 加载历史记录（支持分页）
+        // 加载历史记录（支持分页和类型筛选）
         async function loadHistory(page = 1) {
-            console.log('[loadHistory] 开始加载历史记录, 页码:', page);
+            console.log('[loadHistory] 开始加载历史记录, 页码:', page, '类型:', historyContentType);
             try {
-                const response = await fetch(`/api/history?page=${page}&page_size=${historyPageSize}`);
+                const response = await fetch(`/api/history?page=${page}&page_size=${historyPageSize}&type=${historyContentType}`);
                 console.log('[loadHistory] API 响应状态:', response.status);
                 const data = await response.json();
                 console.log('[loadHistory] API 返回数据:', data);
@@ -2505,53 +2656,103 @@
         function renderHistoryList(records) {
             const grid = document.getElementById('historyGrid');
             if (!records || records.length === 0) {
-                grid.innerHTML = '<div class="history-empty">暂无历史记录，生成博客后将自动保存</div>';
+                const emptyMsg = historyContentType === 'xhs' 
+                    ? '暂无小红书记录，前往小红书创作助手生成' 
+                    : '暂无历史记录，生成博客后将自动保存';
+                grid.innerHTML = `<div class="history-empty">${emptyMsg}</div>`;
                 document.getElementById('historyPagination').innerHTML = '';
                 return;
             }
             
             grid.innerHTML = records.map(record => {
+                const isXhs = record.content_type === 'xhs';
+                
                 // 优先显示视频（循环播放），否则显示图片
-                let coverHtml = '📝';
+                let coverHtml = isXhs ? '📕' : '📝';
                 if (record.cover_video) {
-                    // 支持 OSS URL（http 开头）和本地路径
                     const videoSrc = record.cover_video.startsWith('http') 
                         ? record.cover_video 
                         : (record.cover_video.startsWith('/') ? record.cover_video : `/outputs/videos/${record.cover_video.split('/').pop()}`);
-                    coverHtml = `<video src="${videoSrc}" autoplay loop muted playsinline style="width:100%;height:100%;object-fit:cover;"></video>`;
+                    // 添加 poster 作为加载时的占位图，onerror 时回退到图片
+                    const posterSrc = record.cover_image ? (record.cover_image.startsWith('http') ? record.cover_image : `/outputs/images/${record.cover_image.split('/').pop()}`) : '';
+                    coverHtml = `<video src="${videoSrc}" autoplay loop muted playsinline preload="auto" ${posterSrc ? `poster="${posterSrc}"` : ''} style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none';this.nextElementSibling&&(this.nextElementSibling.style.display='block');" onloadeddata="this.play().catch(()=>{})"></video>${posterSrc ? `<img src="${posterSrc}" alt="封面" style="display:none;width:100%;height:100%;object-fit:cover;">` : ''}`;
                 } else if (record.cover_image) {
-                    // 支持 OSS URL（http 开头）和本地路径
                     let imageSrc = record.cover_image.startsWith('http') 
                         ? record.cover_image 
                         : `/outputs/images/${record.cover_image.split('/').pop()}`;
-                    // OSS 图片使用缩略图（宽度 400px）
                     if (imageSrc.includes('.aliyuncs.com')) {
                         imageSrc += (imageSrc.includes('?') ? '&' : '?') + 'x-oss-process=image/resize,w_400';
                     }
                     coverHtml = `<img src="${imageSrc}" alt="封面" loading="lazy">`;
+                } else if (isXhs && record.xhs_image_urls) {
+                    // 小红书记录：尝试解析图片列表
+                    try {
+                        const imageUrls = JSON.parse(record.xhs_image_urls);
+                        if (imageUrls && imageUrls.length > 0) {
+                            let imageSrc = imageUrls[0];
+                            if (imageSrc.includes('.aliyuncs.com')) {
+                                imageSrc += (imageSrc.includes('?') ? '&' : '?') + 'x-oss-process=image/resize,w_400';
+                            }
+                            coverHtml = `<img src="${imageSrc}" alt="封面" loading="lazy">`;
+                        }
+                    } catch (e) {}
                 }
+                
                 const timeStr = formatTime(record.created_at);
                 const typeMap = { 'tutorial': '教程', 'problem-solution': '问题解决', 'comparison': '对比分析', 'storybook': '绘本' };
                 const lengthMap = { 'mini': 'Mini', 'short': '短文', 'medium': '中等', 'long': '长文', 'custom': '自定义' };
+                const styleMap = { 'hand_drawn': '手绘风', 'claymation': '黏土风' };
                 
-                // 归属书籍标签
-                const bookTag = record.book_title 
+                // 归属书籍标签（仅博客）
+                const bookTag = !isXhs && record.book_title 
                     ? `<span class="book-tag" onclick="event.stopPropagation(); openBook('${record.book_id}')" title="查看书籍">📖 ${escapeHtml(record.book_title)}</span>` 
                     : '';
                 
+                // 小红书徽章
+                const xhsBadge = isXhs ? '<span class="xhs-badge">小红书</span>' : '';
+                
+                // 元数据显示
+                let metaHtml = '';
+                if (isXhs) {
+                    const imgCount = record.images_count || 0;
+                    const style = styleMap[record.xhs_style] || '';
+                    metaHtml = `
+                        <span>🖼️ ${imgCount} 张</span>
+                        <span>${style}</span>
+                        ${record.xhs_publish_url ? '<span>✅ 已发布</span>' : ''}
+                    `;
+                } else {
+                    metaHtml = `
+                        <span>📚 ${record.sections_count || 0} 章</span>
+                        <span>💻 ${record.code_blocks_count || 0} 代码</span>
+                        <span>⭐ ${record.review_score || 0}</span>
+                    `;
+                }
+                
+                // 底部信息
+                let bottomInfo = '';
+                if (isXhs) {
+                    bottomInfo = `${timeStr} · 小红书`;
+                } else {
+                    bottomInfo = `${timeStr} · ${typeMap[record.article_type] || '教程'} · ${lengthMap[record.target_length] || '中等'}`;
+                }
+                
+                // 转小红书按钮（仅博客显示）
+                const toXhsBtn = !isXhs 
+                    ? `<button class="to-xhs-btn" onclick="openToXhsModal(event, '${record.id}', '${escapeHtml(record.topic).replace(/'/g, "\\'")}')">🍠 转小红书</button>` 
+                    : '';
+                
                 return `
-                    <div class="history-card" data-id="${record.id}">
+                    <div class="history-card ${isXhs ? 'xhs-card' : ''}" data-id="${record.id}" data-type="${record.content_type || 'blog'}">
                         <button class="delete-btn" onclick="deleteHistory(event, '${record.id}')" title="删除">×</button>
+                        ${xhsBadge}
                         ${bookTag}
+                        ${toXhsBtn}
                         <div class="history-cover">${coverHtml}</div>
                         <div class="history-content">
                             <div class="history-topic">${escapeHtml(record.topic)}</div>
-                            <div class="history-meta">
-                                <span>📚 ${record.sections_count || 0} 章</span>
-                                <span>💻 ${record.code_blocks_count || 0} 代码</span>
-                                <span>⭐ ${record.review_score || 0}</span>
-                            </div>
-                            <div class="history-time">${timeStr} · ${typeMap[record.article_type] || '教程'} · ${lengthMap[record.target_length] || '中等'}</div>
+                            <div class="history-meta">${metaHtml}</div>
+                            <div class="history-time">${bottomInfo}</div>
                         </div>
                     </div>
                 `;
@@ -2564,6 +2765,19 @@
                     loadHistoryDetail(card.dataset.id);
                 });
             });
+            
+            // 尝试播放所有视频（解决浏览器自动播放策略）
+            setTimeout(() => {
+                grid.querySelectorAll('video').forEach(video => {
+                    video.play().catch(() => {
+                        // 播放失败时显示回退图片
+                        video.style.display = 'none';
+                        if (video.nextElementSibling) {
+                            video.nextElementSibling.style.display = 'block';
+                        }
+                    });
+                });
+            }, 100);
         }
         
         // 渲染分页组件
@@ -2632,6 +2846,14 @@
                 const data = await response.json();
                 if (data.success && data.record) {
                     const record = data.record;
+                    
+                    // 判断是否为小红书记录
+                    if (record.content_type === 'xhs') {
+                        // 跳转到小红书页面查看详情
+                        window.location.href = `/xhs.html?history_id=${historyId}`;
+                        return;
+                    }
+                    
                     let outline = {};
                     try {
                         outline = JSON.parse(record.outline || '{}');
@@ -2644,7 +2866,9 @@
                         sections_count: record.sections_count,
                         code_blocks_count: record.code_blocks_count,
                         images_count: record.images_count,
-                        review_score: record.review_score
+                        review_score: record.review_score,
+                        cover_video: record.cover_video,
+                        cover_image: record.cover_image
                     });
                 }
             } catch (error) {
@@ -2690,6 +2914,20 @@
             general: '📖'
         };
         
+        // 内容类型筛选
+        function filterByContentType(type) {
+            historyContentType = type;
+            historyCurrentPage = 1;  // 重置到第一页
+            
+            // 更新筛选按钮样式
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.type === type);
+            });
+            
+            // 重新加载历史记录
+            loadHistory(1);
+        }
+        
         // 切换历史记录 Tab
         function switchHistoryTab(tab) {
             currentHistoryTab = tab;
@@ -2698,6 +2936,12 @@
             document.querySelectorAll('.history-tab').forEach(t => {
                 t.classList.toggle('active', t.dataset.tab === tab);
             });
+            
+            // 控制内容类型筛选按钮的显示（仅在博客Tab下显示）
+            const contentTypeFilter = document.getElementById('contentTypeFilter');
+            if (contentTypeFilter) {
+                contentTypeFilter.style.display = tab === 'blogs' ? 'flex' : 'none';
+            }
             
             // 切换显示内容
             const historyGrid = document.getElementById('historyGrid');
@@ -2915,6 +3159,12 @@
         function getGenerateCoverVideo() {
             const checkbox = document.getElementById('generateCoverVideoCheckbox');
             return checkbox ? checkbox.checked : false;
+        }
+        
+        // 获取视频尺寸
+        function getVideoAspectRatio() {
+            const select = document.getElementById('videoAspectRatioSelect');
+            return select ? select.value : '16:9';
         }
         
         // ========== vibe-reviewer 功能 ==========
@@ -3707,6 +3957,20 @@
                 statusEl.textContent = '❌ 发布失败: ' + error.message;
             }
         }
+        
+        // ========== 转小红书功能 ==========
+        
+        // 跳转到小红书创作助手（传递博客内容）
+        function openToXhsModal(event, recordId, topic) {
+            event.stopPropagation();
+            // 跳转到 xhs.html，通过 URL 参数传递博客信息
+            const params = new URLSearchParams({
+                topic: topic,
+                source_id: recordId
+            });
+            window.location.href = `/xhs.html?${params.toString()}`;
+        }
+        
     </script>
 </body>
 </html>

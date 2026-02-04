@@ -91,6 +91,7 @@ class BlogService:
         document_knowledge: list = None,
         image_style: str = "",
         generate_cover_video: bool = False,
+        video_aspect_ratio: str = "16:9",
         custom_config: dict = None,
         task_manager=None,
         app=None
@@ -133,6 +134,7 @@ class BlogService:
                             document_knowledge=document_knowledge,
                             image_style=image_style,
                             generate_cover_video=generate_cover_video,
+                            video_aspect_ratio=video_aspect_ratio,
                             custom_config=custom_config,
                             task_manager=task_manager
                         )
@@ -149,6 +151,7 @@ class BlogService:
                         document_knowledge=document_knowledge,
                         image_style=image_style,
                         generate_cover_video=generate_cover_video,
+                        video_aspect_ratio=video_aspect_ratio,
                         custom_config=custom_config,
                         task_manager=task_manager
                     )
@@ -174,6 +177,7 @@ class BlogService:
         document_knowledge: list = None,
         image_style: str = "",
         generate_cover_video: bool = False,
+        video_aspect_ratio: str = "16:9",
         custom_config: dict = None,
         task_manager=None
     ):
@@ -244,7 +248,7 @@ class BlogService:
                         f"code_blocks={article_config['code_blocks_count']}, "
                         f"words={article_config['target_word_count']}")
             
-            # 创建初始状态（支持文档知识、图片风格和文章长度配置）
+            # 创建初始状态（支持文档知识、图片风格、文章长度配置和宽高比）
             initial_state = create_initial_state(
                 topic=topic,
                 article_type=article_type,
@@ -255,6 +259,7 @@ class BlogService:
                 document_ids=document_ids or [],
                 document_knowledge=document_knowledge or [],
                 image_style=image_style,
+                aspect_ratio=video_aspect_ratio,  # 新增：传递宽高比
                 custom_config=custom_config,
                 target_sections_count=article_config['sections_count'],
                 target_images_count=article_config['images_count'],
@@ -501,7 +506,8 @@ class BlogService:
                 full_content=markdown_content,
                 task_manager=task_manager,
                 task_id=task_id,
-                image_style=image_style
+                image_style=image_style,
+                video_aspect_ratio=video_aspect_ratio if generate_cover_video else "16:9"
             )
             # 解构返回值：(外网URL, 本地路径, 文章摘要)
             cover_image_url = cover_image_result[0] if cover_image_result else None
@@ -553,6 +559,7 @@ class BlogService:
                 cover_video_path = self._generate_cover_video(
                     history_id=task_id,
                     cover_image_url=cover_image_url,
+                    video_aspect_ratio=video_aspect_ratio,
                     task_manager=task_manager,
                     task_id=task_id
                 )
@@ -641,7 +648,8 @@ class BlogService:
         full_content: str = "",
         task_manager=None,
         task_id: str = None,
-        image_style: str = ""
+        image_style: str = "",
+        video_aspect_ratio: str = "16:9"
     ) -> Optional[tuple]:
         """
         生成封面架构图
@@ -702,10 +710,18 @@ class BlogService:
                 cover_prompt = pm.render_cover_image_prompt(article_summary=article_summary)
                 logger.info(f"开始生成【封面图】: {title}")
             
+            # 根据视频比例选择图片比例
+            if video_aspect_ratio == "9:16":
+                image_aspect_ratio = AspectRatio.PORTRAIT_9_16
+            else:
+                image_aspect_ratio = AspectRatio.LANDSCAPE_16_9
+            
+            logger.info(f"封面图参数: video_aspect_ratio={video_aspect_ratio}, image_aspect_ratio={image_aspect_ratio.value}")
+            
             # 调用图片生成服务
             result = image_service.generate(
                 prompt=cover_prompt,
-                aspect_ratio=AspectRatio.LANDSCAPE_16_9,
+                aspect_ratio=image_aspect_ratio,
                 image_size=ImageSize.SIZE_2K,
                 download=True
             )
@@ -736,6 +752,7 @@ class BlogService:
         self,
         history_id: str,
         cover_image_url: str,
+        video_aspect_ratio: str = "16:9",
         task_manager=None,
         task_id: str = None
     ) -> Optional[str]:
@@ -793,9 +810,20 @@ class BlogService:
                         'message': f'视频生成进度: {progress}%'
                     })
             
+            # 将宽高比转换为 VideoAspectRatio 枚举值
+            from services.video_service import VideoAspectRatio
+            aspect_ratio_map = {
+                '16:9': VideoAspectRatio.LANDSCAPE_16_9,
+                '9:16': VideoAspectRatio.PORTRAIT_9_16
+            }
+            aspect_ratio = aspect_ratio_map.get(video_aspect_ratio, VideoAspectRatio.LANDSCAPE_16_9)
+            
+            logger.info(f"封面视频参数: video_aspect_ratio={video_aspect_ratio}, aspect_ratio={aspect_ratio.value}")
+            
             # 调用视频生成服务
             result = video_service.generate_from_image(
                 image_url=cover_image_url,
+                aspect_ratio=aspect_ratio,
                 progress_callback=progress_callback
             )
             

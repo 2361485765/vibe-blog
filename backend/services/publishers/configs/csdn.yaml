@@ -88,4 +88,4 @@ result_url:
 # 脚注配置
 footer:
   enabled: true
-  text: "\n\n> 本文由 [Vibe-Blog](https://github.com/your-repo/vibe-blog) 自动发布"
+  text: "\n\n> 本文由 [Vibe-Blog](https://github.com/datawhalechina/vibe-blog) 自动发布"

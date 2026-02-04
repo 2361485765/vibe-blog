@@ -1,6 +1,6 @@
 """
 LLM 服务模块 - 统一管理大模型客户端
-复用自 AI 绘本项目
+
 """
 import logging
 from typing import Optional, List, Dict, Any

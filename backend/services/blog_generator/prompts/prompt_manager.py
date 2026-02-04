@@ -4,6 +4,7 @@ Prompt 管理器 - 使用 Jinja2 模板管理 Prompt
 
 import os
 import logging
+from datetime import datetime
 from typing import Any, Dict, Optional
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -88,6 +89,10 @@ class PromptManager:
         
         try:
             template = self.env.get_template(template_name)
+            # 自动注入当前时间戳
+            kwargs['current_time'] = datetime.now().strftime('%Y年%m月%d日')
+            kwargs['current_year'] = datetime.now().year
+            kwargs['current_month'] = datetime.now().month
             return template.render(**kwargs)
         except Exception as e:
             logger.error(f"模板渲染失败 [{template_name}]: {e}")
@@ -133,7 +138,9 @@ class PromptManager:
         target_sections_count: int = None,
         target_images_count: int = None,
         target_code_blocks_count: int = None,
-        target_word_count: int = None
+        target_word_count: int = None,
+        instructional_analysis: dict = None,
+        verbatim_data: list = None
     ) -> str:
         """渲染 Planner Prompt"""
         return self.render(
@@ -148,7 +155,9 @@ class PromptManager:
             target_sections_count=target_sections_count,
             target_images_count=target_images_count,
             target_code_blocks_count=target_code_blocks_count,
-            target_word_count=target_word_count
+            target_word_count=target_word_count,
+            instructional_analysis=instructional_analysis,
+            verbatim_data=verbatim_data or []
         )
     
     def render_writer(
@@ -157,7 +166,10 @@ class PromptManager:
         previous_section_summary: str = None,
         next_section_preview: str = None,
         background_knowledge: str = None,
-        audience_adaptation: str = "technical-beginner"
+        audience_adaptation: str = "technical-beginner",
+        search_results: list = None,
+        verbatim_data: list = None,
+        learning_objectives: list = None
     ) -> str:
         """渲染 Writer Prompt"""
         return self.render(
@@ -166,7 +178,10 @@ class PromptManager:
             previous_section_summary=previous_section_summary,
             next_section_preview=next_section_preview,
             background_knowledge=background_knowledge,
-            audience_adaptation=audience_adaptation
+            audience_adaptation=audience_adaptation,
+            search_results=search_results or [],
+            verbatim_data=verbatim_data or [],
+            learning_objectives=learning_objectives or []
         )
     
     def render_writer_enhance(
@@ -230,13 +245,21 @@ class PromptManager:
     def render_reviewer(
         self,
         document: str,
-        outline: dict
+        outline: dict,
+        verbatim_data: list = None,
+        learning_objectives: list = None,
+        search_results: list = None,
+        background_knowledge: str = None
     ) -> str:
         """渲染 Reviewer Prompt"""
         return self.render(
             'reviewer',
             document=document,
-            outline=outline
+            outline=outline,
+            search_results=search_results or [],
+            verbatim_data=verbatim_data or [],
+            learning_objectives=learning_objectives or [],
+            background_knowledge=background_knowledge or ""
         )
     
     def render_assembler_header(
@@ -436,6 +459,97 @@ class PromptManager:
             'missing_diagram_detector',
             section_title=section_title,
             content=content
+        )
+    
+    # ========== 小红书相关 Prompt ==========
+    
+    def render_xhs_outline(
+        self,
+        topic: str,
+        count: int = 4,
+        content: str = None
+    ) -> str:
+        """
+        渲染小红书大纲生成 Prompt
+        
+        Args:
+            topic: 主题
+            count: 页面数量（包括封面）
+            content: 参考内容（可选）
+        """
+        return self.render(
+            'xhs_outline',
+            topic=topic,
+            count=count,
+            content=content
+        )
+    
+    def render_xhs_visual_prompts_batch(
+        self,
+        full_outline: str,
+        page_count: int,
+        user_topic: str = None
+    ) -> str:
+        """
+        渲染小红书视觉指令（批量版本）- 一次性生成所有页的视觉 Prompt
+        
+        Args:
+            full_outline: 完整大纲
+            page_count: 页面数量
+            user_topic: 用户原始主题
+            
+        Returns:
+            元指令 Prompt，让 LLM 生成所有页的视觉描述
+        """
+        return self.render(
+            'xhs_visual_prompt_ghibli_dynamic',
+            full_outline=full_outline,
+            page_count=page_count,
+            user_topic=user_topic
+        )
+    
+    def render_xhs_image(
+        self,
+        page_content: str,
+        page_type: str = "content",
+        style: str = "hand_drawn",
+        reference_image: bool = False,
+        user_topic: str = None,
+        full_outline: str = None,
+        page_index: int = 0,
+        layout: str = None,
+        shape: str = None
+    ) -> str:
+        """
+        渲染小红书图片生成 Prompt（单页版本，用于非 ghibli_summer 风格）
+        """
+        # 默认风格
+        return self.render(
+            'xhs_image',
+            page_content=page_content,
+            page_type=page_type,
+            style=style,
+            reference_image=reference_image,
+            user_topic=user_topic,
+            full_outline=full_outline
+        )
+    
+    def render_xhs_content(
+        self,
+        topic: str,
+        outline: str
+    ) -> str:
+        """
+        渲染小红书文案生成 Prompt
+        
+        Args:
+            topic: 主题
+            outline: 大纲内容
+        """
+        return self.render(
+            'xhs_content',
+            topic=topic,
+            outline=outline
         )
 
 

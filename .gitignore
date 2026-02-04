@@ -13,7 +13,7 @@ __pycache__/
 .Python
 build/
 develop-eggs/
-dist/
+# dist/  # 前端 dist 需要提交，用于服务器部署
 downloads/
 eggs/
 .eggs/
@@ -45,7 +45,10 @@ env/
 .DS_Store
 *.sublime-project
 *.sublime-workspace
-/frontend
+# /frontend
+# .windsurf/
+# .shared/
+/outputs
 
 # 日志文件
 *.log

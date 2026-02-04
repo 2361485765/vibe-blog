@@ -1,6 +1,7 @@
 """
-视频生成服务 - 基于 Veo3 API
-将静态图片转换为动画视频
+视频生成服务 - 统一入口
+支持多种视频生成模型：Veo3, Sora2
+通过模型名称自动路由到对应的服务
 """
 import requests
 import time
@@ -34,6 +35,7 @@ class VideoResult:
     local_path: Optional[str] = None
     task_id: Optional[str] = None
     oss_url: Optional[str] = None  # OSS 公网 URL
+    pid: Optional[str] = None  # Sora2 视频 ID，用于续创作
 
 
 class Veo3Service:
@@ -294,16 +296,165 @@ class Veo3Service:
         return {'oss_url': None}
 
 
+class UnifiedVideoService:
+    """
+    统一视频生成服务
+    
+    通过模型名称自动路由到对应的服务：
+    - sora2, sora-2 -> Sora2Service
+    - veo3, veo3.1-fast, veo3.1-pro -> Veo3Service
+    """
+    
+    # 模型名称映射
+    SORA2_MODELS = ['sora2', 'sora-2']
+    VEO3_MODELS = ['veo3', 'veo3.1-fast', 'veo3.1-pro']
+    
+    def __init__(self, veo3_service: Optional[Veo3Service] = None, sora2_service=None):
+        self.veo3_service = veo3_service
+        self.sora2_service = sora2_service
+        self._default_model = 'veo3'  # 默认使用 Veo3
+        
+        logger.info(f"UnifiedVideoService 初始化: veo3={veo3_service is not None}, sora2={sora2_service is not None}")
+    
+    def is_available(self, model: Optional[str] = None) -> bool:
+        """检查服务是否可用"""
+        if model:
+            service = self._get_service_for_model(model)
+            return service is not None and service.is_available()
+        # 任一服务可用即可
+        return (self.veo3_service and self.veo3_service.is_available()) or \
+               (self.sora2_service and self.sora2_service.is_available())
+    
+    def _get_service_for_model(self, model: str):
+        """根据模型名称获取对应的服务"""
+        model_lower = model.lower()
+        
+        if model_lower in self.SORA2_MODELS:
+            return self.sora2_service
+        elif model_lower in self.VEO3_MODELS:
+            return self.veo3_service
+        else:
+            # 默认使用 Veo3
+            logger.warning(f"未知模型: {model}，使用默认 Veo3")
+            return self.veo3_service
+    
+    def _get_model_name(self, model: str) -> str:
+        """获取模型显示名称"""
+        model_lower = model.lower()
+        if model_lower in self.SORA2_MODELS:
+            return "Sora2"
+        elif model_lower in self.VEO3_MODELS:
+            return "Veo3"
+        return model
+    
+    def generate_from_image(
+        self,
+        image_url: str,
+        prompt: Optional[str] = None,
+        aspect_ratio: VideoAspectRatio = VideoAspectRatio.PORTRAIT_9_16,
+        model: Optional[str] = None,
+        download: bool = True,
+        max_wait_time: int = 600,
+        progress_callback: callable = None,
+        max_retries: int = 1,
+        remix_target_id: Optional[str] = None  # Sora2 续创作：上一个视频的 pid
+    ) -> Optional[VideoResult]:
+        """
+        从图片生成动画视频（统一入口）
+
+        Args:
+            image_url: 首帧图片 URL
+            prompt: 动画提示词
+            aspect_ratio: 视频比例
+            model: 模型名称（sora2/veo3/veo3.1-fast/veo3.1-pro）
+            download: 是否上传到 OSS
+            max_wait_time: 最大等待时间
+            progress_callback: 进度回调
+            max_retries: 最大重试次数
+            remix_target_id: Sora2 续创作的目标视频 pid（可选）
+
+        Returns:
+            VideoResult 或 None（包含 pid 用于下一次续创作）
+        """
+        use_model = model or self._default_model
+        service = self._get_service_for_model(use_model)
+        model_name = self._get_model_name(use_model)
+        
+        if not service or not service.is_available():
+            logger.error(f"[{model_name}] 服务不可用")
+            return None
+        
+        if remix_target_id:
+            logger.info(f"[{model_name}] 续创作模式: {image_url[:50]}... (基于 pid={remix_target_id})")
+        else:
+            logger.info(f"[{model_name}] 开始生成视频: {image_url[:50]}...")
+        
+        # 构建调用参数
+        kwargs = {
+            'image_url': image_url,
+            'prompt': prompt,
+            'aspect_ratio': aspect_ratio,
+            'max_wait_time': max_wait_time,
+            'progress_callback': progress_callback,
+            'max_retries': max_retries
+        }
+        
+        # Sora2 支持续创作
+        if remix_target_id and use_model.lower() in self.SORA2_MODELS:
+            kwargs['remix_target_id'] = remix_target_id
+        
+        logger.info(f"[{model_name}] 视频参数: aspect_ratio={aspect_ratio.value}")
+        
+        # 调用对应服务的 generate_from_image
+        result = service.generate_from_image(**kwargs)
+        
+        if result:
+            # 统一返回 VideoResult 格式
+            return VideoResult(
+                url=result.url,
+                local_path=getattr(result, 'local_path', None),
+                task_id=getattr(result, 'task_id', None),
+                oss_url=getattr(result, 'oss_url', None),
+                pid=getattr(result, 'pid', None)  # 保留 pid 用于续创作
+            )
+        
+        return None
+    
+    @staticmethod
+    def get_supported_models() -> dict:
+        """获取支持的模型列表"""
+        return {
+            'sora2': {
+                'name': 'Sora2',
+                'description': 'OpenAI Sora2，支持 10-15 秒视频，角色系统，视频续作',
+                'duration': [10, 15],
+                'recommended': True
+            },
+            'veo3': {
+                'name': 'Veo3',
+                'description': 'Google Veo3，支持 5-8 秒视频',
+                'duration': [5, 8],
+                'recommended': False
+            }
+        }
+
+
 # 全局服务实例
-_video_service: Optional[Veo3Service] = None
+_veo3_service: Optional[Veo3Service] = None
+_unified_video_service: Optional[UnifiedVideoService] = None
 
 
-def get_video_service() -> Optional[Veo3Service]:
-    """获取全局视频生成服务实例"""
-    return _video_service
+def get_video_service() -> Optional[UnifiedVideoService]:
+    """获取统一视频生成服务实例"""
+    return _unified_video_service
 
 
-def init_video_service(config: dict) -> Optional[Veo3Service]:
+def get_veo3_service() -> Optional[Veo3Service]:
+    """获取 Veo3 服务实例（向后兼容）"""
+    return _veo3_service
+
+
+def init_video_service(config: dict) -> Optional[UnifiedVideoService]:
     """
     从配置初始化视频生成服务
 
@@ -311,11 +462,10 @@ def init_video_service(config: dict) -> Optional[Veo3Service]:
         config: Flask app.config 字典
 
     Returns:
-        Veo3Service 实例或 None
+        UnifiedVideoService 实例或 None
     """
-    global _video_service
+    global _veo3_service, _unified_video_service
     
-    # 复用图片服务的 API Key
     api_key = config.get('NANO_BANANA_API_KEY', '')
     if not api_key:
         logger.warning("未配置 NANO_BANANA_API_KEY，视频生成服务不可用")
@@ -327,12 +477,28 @@ def init_video_service(config: dict) -> Optional[Veo3Service]:
         base_output = config.get('OUTPUT_FOLDER', 'outputs')
         output_folder = os.path.join(base_output, 'videos')
     
-    _video_service = Veo3Service(
+    # 初始化 Veo3 服务
+    _veo3_service = Veo3Service(
         api_key=api_key,
         api_base=config.get('NANO_BANANA_API_BASE', 'https://grsai.dakka.com.cn'),
         model=config.get('VEO3_MODEL', 'veo3.1-fast'),
         output_folder=output_folder
     )
     
-    logger.info(f"视频生成服务已初始化: model={_video_service.model}")
-    return _video_service
+    # 初始化 Sora2 服务
+    from services.sora2_service import Sora2Service
+    sora2_service = Sora2Service(
+        api_key=api_key,
+        api_base=config.get('NANO_BANANA_API_BASE', 'https://grsai.dakka.com.cn'),
+        default_duration=config.get('SORA2_DURATION', 10),
+        default_size=config.get('SORA2_SIZE', 'small')
+    )
+    
+    # 创建统一服务
+    _unified_video_service = UnifiedVideoService(
+        veo3_service=_veo3_service,
+        sora2_service=sora2_service
+    )
+    
+    logger.info("统一视频生成服务已初始化: Veo3 + Sora2")
+    return _unified_video_service
