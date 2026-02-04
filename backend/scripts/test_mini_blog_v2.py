@@ -36,6 +36,7 @@ def test_mini_blog(topic: str):
     from backend.services.blog_generator.blog_service import init_blog_service, get_blog_service
     from backend.services.llm_service import init_llm_service
     from backend.services.image_service import init_image_service
+    from backend.services.blog_generator.services.search_service import init_search_service
     
     # 构建配置
     config = {
@@ -48,12 +49,16 @@ def test_mini_blog(topic: str):
         'NANO_BANANA_API_KEY': os.getenv('NANO_BANANA_API_KEY', ''),
         'NANO_BANANA_API_BASE': os.getenv('NANO_BANANA_API_BASE', 'https://grsai.dakka.com.cn'),
         'NANO_BANANA_MODEL': os.getenv('NANO_BANANA_MODEL', 'nano-banana-pro'),
+        # 搜索服务配置
+        'ZAI_SEARCH_API_KEY': os.getenv('ZAI_SEARCH_API_KEY', ''),
+        'ZAI_SEARCH_API_BASE': os.getenv('ZAI_SEARCH_API_BASE', ''),
     }
     
     # 初始化服务
     llm_client = init_llm_service(config)
     init_image_service(config)  # 初始化图片服务
-    init_blog_service(llm_client)
+    search_service = init_search_service(config)  # 初始化搜索服务
+    init_blog_service(llm_client, search_service=search_service)
     blog_service = get_blog_service()
     
     if not blog_service:
