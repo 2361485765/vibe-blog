@@ -370,14 +370,61 @@ banana-blog/
 
 ## 🔧 Environment Variables
 
+<details>
+<summary><b>📋 Full Configuration (Click to Expand)</b></summary>
+
+### AI Model Configuration
+
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `AI_PROVIDER_FORMAT` | AI Provider format | openai |
-| `OPENAI_API_KEY` | OpenAI API Key | - |
-| `OPENAI_API_BASE` | OpenAI API Base URL | https://api.openai.com/v1 |
-| `TEXT_MODEL` | Text generation model | gpt-4o |
-| `ZHIPU_API_KEY` | Zhipu Search API Key (optional) | - |
-| `NANO_BANANA_API_KEY` | Nano Banana Pro API Key (optional) | - |
+| `TEXT_MODEL` | Text generation model | qwen3-max-preview |
+| `IMAGE_CAPTION_MODEL` | Image caption model | qwen3-vl-plus-2025-12-19 |
+
+### OpenAI Compatible API
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `OPENAI_API_KEY` | OpenAI compatible API Key | sk-xxx |
+| `OPENAI_API_BASE` | OpenAI compatible API Base URL | https://dashscope.aliyuncs.com/compatible-mode/v1 |
+
+### Image Generation (Nano Banana)
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `NANO_BANANA_API_KEY` | Nano Banana API Key | sk-xxx |
+| `NANO_BANANA_API_BASE` | Nano Banana API Base URL | https://grsai.dakka.com.cn |
+| `NANO_BANANA_MODEL` | Nano Banana model name | nano-banana-pro |
+
+### Search Configuration (Zhipu Web Search)
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `ZAI_SEARCH_API_KEY` | Zhipu Web Search API Key | xxx |
+| `ZAI_SEARCH_API_BASE` | Zhipu Search API Base URL | https://open.bigmodel.cn/api/paas/v4/web_search |
+| `ZAI_SEARCH_ENGINE` | Search engine type | search_pro_quark |
+| `ZAI_SEARCH_MAX_RESULTS` | Max search results | 5 |
+| `ZAI_SEARCH_CONTENT_SIZE` | Content size | medium |
+| `ZAI_SEARCH_RECENCY_FILTER` | Recency filter | noLimit |
+
+### Multi-Search Configuration
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `MULTI_SEARCH_MAX_SHORT` | Max search rounds for short articles | 3 |
+| `MULTI_SEARCH_MAX_MEDIUM` | Max search rounds for medium articles | 5 |
+| `MULTI_SEARCH_MAX_LONG` | Max search rounds for long articles | 8 |
+
+### Knowledge Fusion Configuration
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `KNOWLEDGE_MAX_CONTENT_LENGTH` | Max content length | 8000 |
+| `KNOWLEDGE_MAX_DOC_ITEMS` | Max document items | 10 |
+| `KNOWLEDGE_CHUNK_SIZE` | Chunk size | 2000 |
+| `KNOWLEDGE_CHUNK_OVERLAP` | Chunk overlap | 200 |
+
+</details>
 
 
 ## 🤝 Contributing
