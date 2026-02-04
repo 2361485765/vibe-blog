@@ -216,6 +216,65 @@ class TestPromptLogging:
         assert len(prompt) > 100
 
 
+class TestWriterCorrect:
+    """测试 Writer 更正功能"""
+    
+    def test_render_writer_correct(self):
+        """测试 render_writer_correct 方法"""
+        from services.blog_generator.prompts.prompt_manager import get_prompt_manager
+        
+        pm = get_prompt_manager()
+        prompt = pm.render_writer_correct(
+            section_title="测试章节",
+            original_content="这是原始内容，包含一些错误信息。",
+            issues=[
+                {
+                    "severity": "high",
+                    "description": "虚构了不存在的数据",
+                    "affected_content": "错误信息"
+                }
+            ]
+        )
+        
+        # 验证 Prompt 包含关键内容
+        assert "测试章节" in prompt
+        assert "原始内容" in prompt
+        assert "虚构" in prompt
+        assert "只更正，不扩展" in prompt
+    
+    def test_render_writer_correct_empty_issues(self):
+        """测试空问题列表"""
+        from services.blog_generator.prompts.prompt_manager import get_prompt_manager
+        
+        pm = get_prompt_manager()
+        prompt = pm.render_writer_correct(
+            section_title="测试章节",
+            original_content="这是原始内容",
+            issues=[]
+        )
+        
+        # 即使没有问题，也应该生成有效的 Prompt
+        assert "测试章节" in prompt
+        assert len(prompt) > 100
+
+
+class TestMiniModeCorrectSection:
+    """测试 Mini 模式使用 correct_section 而非 enhance_section"""
+    
+    def test_revision_node_uses_correct_section_for_mini(self):
+        """测试 Mini 模式修订使用 correct_section"""
+        # 验证 generator.py 中的修订逻辑
+        import inspect
+        from services.blog_generator.generator import BlogGenerator
+        
+        generator = BlogGenerator.__new__(BlogGenerator)
+        source = inspect.getsource(generator._revision_node)
+        
+        # 验证 Mini 模式使用 correct_section
+        assert "correct_section" in source
+        assert "target_length in ('mini', 'short')" in source
+
+
 class TestInitialState:
     """测试初始状态创建"""
     

@@ -395,30 +395,58 @@ class BlogGenerator:
         # 根据审核问题修订内容
         review_issues = state.get('review_issues', [])
         total_issues = len(review_issues)
+        target_length = state.get('target_length', 'medium')
         
-        for idx, issue in enumerate(review_issues, 1):
-            section_id = issue.get('section_id', '')
-            issue_type = issue.get('issue_type', '')
-            suggestion = issue.get('suggestion', '')
+        # Mini/Short 模式：按章节分组问题，使用 correct_section（只更正不扩展）
+        if target_length in ('mini', 'short'):
+            # 按章节分组问题
+            section_issues = {}
+            for issue in review_issues:
+                section_id = issue.get('section_id', '')
+                if section_id not in section_issues:
+                    section_issues[section_id] = []
+                section_issues[section_id].append({
+                    'severity': issue.get('severity', 'medium'),
+                    'description': issue.get('description', ''),
+                    'affected_content': issue.get('affected_content', '')
+                })
             
-            # 找到对应章节并修订
-            for section in state.get('sections', []):
-                if section.get('id') == section_id:
-                    section_title = section.get('title', section_id)
-                    # 简单实现：将建议作为追问深化
-                    enhanced_content = self.writer.enhance_section(
-                        original_content=section.get('content', ''),
-                        vague_points=[{
-                            'location': section_title,
-                            'issue': issue.get('description', ''),
-                            'question': suggestion,
-                            'suggestion': '根据审核建议修改'
-                        }],
-                        section_title=section_title,
-                        progress_info=f"[{idx}/{total_issues}]"
-                    )
-                    section['content'] = enhanced_content
-                    break
+            # 对每个有问题的章节进行更正
+            for idx, (section_id, issues) in enumerate(section_issues.items(), 1):
+                for section in state.get('sections', []):
+                    if section.get('id') == section_id:
+                        section_title = section.get('title', section_id)
+                        corrected_content = self.writer.correct_section(
+                            original_content=section.get('content', ''),
+                            issues=issues,
+                            section_title=section_title,
+                            progress_info=f"[{idx}/{len(section_issues)}]"
+                        )
+                        section['content'] = corrected_content
+                        break
+        else:
+            # 其他模式：使用 enhance_section（可扩展内容）
+            for idx, issue in enumerate(review_issues, 1):
+                section_id = issue.get('section_id', '')
+                suggestion = issue.get('suggestion', '')
+                
+                # 找到对应章节并修订
+                for section in state.get('sections', []):
+                    if section.get('id') == section_id:
+                        section_title = section.get('title', section_id)
+                        enhanced_content = self.writer.enhance_section(
+                            original_content=section.get('content', ''),
+                            vague_points=[{
+                                'location': section_title,
+                                'issue': issue.get('description', ''),
+                                'question': suggestion,
+                                'suggestion': '根据审核建议修改'
+                            }],
+                            section_title=section_title,
+                            progress_info=f"[{idx}/{total_issues}]"
+                        )
+                        section['content'] = enhanced_content
+                        break
         
         after_count = _get_content_word_count(state)
         _log_word_count_diff("修订", before_count, after_count)

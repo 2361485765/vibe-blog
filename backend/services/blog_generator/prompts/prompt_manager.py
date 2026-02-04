@@ -196,6 +196,23 @@ class PromptManager:
             vague_points=vague_points or []
         )
     
+    def render_writer_correct(
+        self,
+        section_title: str,
+        original_content: str,
+        issues: list
+    ) -> str:
+        """
+        渲染 Writer 更正 Prompt（Mini/Short 模式专用）
+        只更正错误，不扩展内容
+        """
+        return self.render(
+            'writer_correct',
+            section_title=section_title,
+            original_content=original_content,
+            issues=issues or []
+        )
+    
     def render_coder(
         self,
         code_description: str,
