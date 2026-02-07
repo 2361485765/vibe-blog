@@ -26,10 +26,13 @@ def app(monkeypatch):
     mock_task_mgr = MagicMock()
     mock_file_parser = MagicMock()
 
-    monkeypatch.setattr('app.get_blog_service', lambda: mock_blog_svc)
-    monkeypatch.setattr('app.get_db_service', lambda: mock_db_svc)
-    monkeypatch.setattr('app.get_task_manager', lambda: mock_task_mgr)
-    monkeypatch.setattr('app.get_file_parser', lambda: mock_file_parser)
+    monkeypatch.setattr('routes.blog_routes.get_blog_service', lambda: mock_blog_svc)
+    monkeypatch.setattr('routes.blog_routes.get_db_service', lambda: mock_db_svc)
+    monkeypatch.setattr('routes.blog_routes.get_file_parser', lambda: mock_file_parser)
+    monkeypatch.setattr('routes.history_routes.get_db_service', lambda: mock_db_svc)
+    monkeypatch.setattr('routes.task_routes.get_task_manager', lambda: mock_task_mgr)
+    monkeypatch.setattr('routes.static_routes.get_db_service', lambda: mock_db_svc)
+    monkeypatch.setattr('routes.book_routes.get_db_service', lambda: mock_db_svc)
 
     from app import create_app
     flask_app = create_app()

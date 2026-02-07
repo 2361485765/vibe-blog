@@ -6,6 +6,15 @@ All notable changes to the Vibe Blog project will be documented in this file.
 
 ## 2026-02-07
 
+### Refactored
+- ♻️ 后端 `app.py` 拆分为 Blueprint 模块化架构（2729 行 → ~175 行）
+  - 新增 `routes/` 包，含 8 个 Blueprint：static、transform、task、blog、history、book、xhs、publish
+  - 新增 `logging_config.py`：日志配置抽取
+  - 新增 `exceptions.py`：自定义异常层级（VibeBlogError / ValidationError / NotFoundError / ServiceUnavailableError）
+  - 更新 `conftest.py` 和测试文件的 monkeypatch 路径适配 Blueprint 模块
+  - `pytest.ini` 新增 `--cov=routes` 覆盖范围
+  - 零功能变更，全部 110 个测试通过
+
 ### Added
 - ✨ 底部 `scroll ↓` 提示动画，引导用户下滑查看历史记录
 - ✨ 滚动触发 `terminal-boot` 淡入上滑动画（0.8s）

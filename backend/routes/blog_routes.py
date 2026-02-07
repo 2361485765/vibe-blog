@@ -1,0 +1,392 @@
+"""
+博客生成路由
+/api/blog/upload, /api/blog/generate, /api/blog/documents, etc.
+"""
+import os
+import uuid
+import logging
+import threading
+
+from flask import Blueprint, jsonify, request, current_app
+
+from services import (
+    get_llm_service, get_blog_service,
+    get_task_manager, init_blog_service,
+    init_search_service, get_search_service,
+)
+from services.database_service import get_db_service
+from services.file_parser_service import get_file_parser
+from services.knowledge_service import get_knowledge_service
+
+logger = logging.getLogger(__name__)
+
+blog_bp = Blueprint('blog', __name__)
+
+
+def init_blog_services(app_config):
+    """初始化搜索服务和博客生成服务（在 create_app 中调用）"""
+    try:
+        init_search_service(app_config)
+        search_service = get_search_service()
+        if search_service and search_service.is_available():
+            logger.info("智谱搜索服务已初始化")
+        else:
+            logger.warning("智谱搜索服务不可用，Researcher Agent 将跳过联网搜索")
+
+        llm_service = get_llm_service()
+        knowledge_service = get_knowledge_service()
+        if llm_service and llm_service.is_available():
+            init_blog_service(llm_service, search_service, knowledge_service)
+            logger.info("博客生成服务已初始化（含知识融合支持）")
+    except Exception as e:
+        logger.warning(f"博客生成服务初始化失败: {e}")
+
+
+@blog_bp.route('/api/blog/upload', methods=['POST'])
+def upload_document():
+    """上传知识文档"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': '请上传文件'}), 400
+
+        file = request.files['file']
+        if not file.filename:
+            return jsonify({'success': False, 'error': '文件名为空'}), 400
+
+        filename = file.filename
+        ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+        if ext not in ['pdf', 'md', 'txt', 'markdown']:
+            return jsonify({'success': False, 'error': f'不支持的文件类型: {ext}'}), 400
+
+        doc_id = f"doc_{uuid.uuid4().hex[:12]}"
+
+        upload_folder = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'uploads')
+        os.makedirs(upload_folder, exist_ok=True)
+        file_path = os.path.join(upload_folder, f"{doc_id}_{filename}")
+        file.save(file_path)
+
+        file_size = os.path.getsize(file_path)
+        file_type = ext if ext != 'markdown' else 'md'
+
+        if ext == 'pdf':
+            file_parser = get_file_parser()
+            if file_parser:
+                page_count = file_parser._get_pdf_page_count(file_path)
+                if page_count > file_parser.pdf_max_pages:
+                    os.remove(file_path)
+                    return jsonify({
+                        'success': False,
+                        'error': f'PDF 页数超过限制：{page_count} 页（最大支持 {file_parser.pdf_max_pages} 页）'
+                    }), 400
+
+        db_service = get_db_service()
+        db_service.create_document(
+            doc_id=doc_id,
+            filename=filename,
+            file_path=file_path,
+            file_size=file_size,
+            file_type=file_type
+        )
+
+        app = current_app._get_current_object()
+
+        def parse_async():
+            with app.app_context():
+                try:
+                    db_service.update_document_status(doc_id, 'parsing')
+
+                    file_parser = get_file_parser()
+                    if not file_parser:
+                        db_service.update_document_status(doc_id, 'error', '文件解析服务不可用')
+                        return
+
+                    result = file_parser.parse_file(file_path, filename)
+
+                    if not result.get('success'):
+                        db_service.update_document_status(doc_id, 'error', result.get('error', '解析失败'))
+                        return
+
+                    markdown = result.get('markdown', '')
+                    images = result.get('images', [])
+                    mineru_folder = result.get('mineru_folder')
+
+                    db_service.save_parse_result(doc_id, markdown, mineru_folder)
+
+                    chunk_size = app.config.get('KNOWLEDGE_CHUNK_SIZE', 2000)
+                    chunk_overlap = app.config.get('KNOWLEDGE_CHUNK_OVERLAP', 200)
+                    chunks = file_parser.chunk_markdown(markdown, chunk_size, chunk_overlap)
+                    db_service.save_chunks(doc_id, chunks)
+
+                    llm_service = get_llm_service()
+                    if llm_service:
+                        summary = file_parser.generate_document_summary(markdown, llm_service)
+                        if summary:
+                            db_service.update_document_summary(doc_id, summary)
+
+                    if images and llm_service:
+                        images_with_caption = file_parser.generate_image_captions(images, llm_service)
+                        db_service.save_images(doc_id, images_with_caption)
+                    elif images:
+                        db_service.save_images(doc_id, images)
+
+                    logger.info(f"文档解析完成: {doc_id}, chunks={len(chunks)}, images={len(images)}")
+
+                except Exception as e:
+                    logger.error(f"文档解析异常: {doc_id}, {e}", exc_info=True)
+                    db_service.update_document_status(doc_id, 'error', str(e))
+
+        thread = threading.Thread(target=parse_async, daemon=True)
+        thread.start()
+
+        return jsonify({
+            'success': True,
+            'document_id': doc_id,
+            'filename': filename,
+            'status': 'pending'
+        })
+
+    except Exception as e:
+        logger.error(f"文档上传失败: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@blog_bp.route('/api/blog/upload/<document_id>/status', methods=['GET'])
+def get_document_status(document_id):
+    """获取文档解析状态"""
+    db_service = get_db_service()
+    doc = db_service.get_document(document_id)
+
+    if not doc:
+        return jsonify({'success': False, 'error': '文档不存在'}), 404
+
+    chunks = db_service.get_chunks_by_document(document_id)
+    images = db_service.get_images_by_document(document_id)
+
+    return jsonify({
+        'success': True,
+        'document_id': document_id,
+        'filename': doc.get('filename'),
+        'status': doc.get('status'),
+        'summary': doc.get('summary'),
+        'markdown_length': doc.get('markdown_length', 0),
+        'chunks_count': len(chunks),
+        'images_count': len(images),
+        'error_message': doc.get('error_message'),
+        'created_at': doc.get('created_at'),
+        'parsed_at': doc.get('parsed_at')
+    })
+
+
+@blog_bp.route('/api/blog/upload/<document_id>', methods=['DELETE'])
+def delete_document(document_id):
+    """删除文档"""
+    db_service = get_db_service()
+    doc = db_service.get_document(document_id)
+
+    if not doc:
+        return jsonify({'success': False, 'error': '文档不存在'}), 404
+
+    file_path = doc.get('file_path')
+    if file_path and os.path.exists(file_path):
+        os.remove(file_path)
+
+    db_service.delete_document(document_id)
+
+    return jsonify({'success': True, 'message': '文档已删除'})
+
+
+@blog_bp.route('/api/blog/documents', methods=['GET'])
+def list_documents():
+    """列出所有文档"""
+    db_service = get_db_service()
+    status = request.args.get('status')
+    docs = db_service.list_documents(status=status)
+
+    return jsonify({
+        'success': True,
+        'documents': docs,
+        'count': len(docs)
+    })
+
+
+@blog_bp.route('/api/blog/generate', methods=['POST'])
+def generate_blog():
+    """创建长文博客生成任务"""
+    try:
+        data = request.get_json()
+
+        if not data:
+            return jsonify({'success': False, 'error': '请提供 JSON 数据'}), 400
+
+        topic = data.get('topic', '')
+        if not topic:
+            return jsonify({'success': False, 'error': '请提供 topic 参数'}), 400
+
+        article_type = data.get('article_type', 'tutorial')
+        target_audience = data.get('target_audience', 'intermediate')
+        audience_adaptation = data.get('audience_adaptation', 'default')
+        target_length = data.get('target_length', 'medium')
+        source_material = data.get('source_material', None)
+        document_ids = data.get('document_ids', [])
+        image_style = data.get('image_style', '')
+        generate_cover_video = data.get('generate_cover_video', False)
+        video_aspect_ratio = data.get('video_aspect_ratio', '16:9')
+        custom_config = data.get('custom_config', None)
+
+        if target_length == 'custom':
+            if not custom_config:
+                return jsonify({'success': False, 'error': '自定义模式需要提供 custom_config 参数'}), 400
+            try:
+                from config import validate_custom_config
+                validate_custom_config(custom_config)
+            except ValueError as e:
+                return jsonify({'success': False, 'error': f'自定义配置验证失败: {str(e)}'}), 400
+
+        logger.info(f"📝 博客生成请求: topic={topic}, article_type={article_type}, target_audience={target_audience}, audience_adaptation={audience_adaptation}, target_length={target_length}, document_ids={document_ids}, image_style={image_style}, generate_cover_video={generate_cover_video}, video_aspect_ratio={video_aspect_ratio}, custom_config={custom_config}")
+
+        blog_service = get_blog_service()
+        if not blog_service:
+            return jsonify({'success': False, 'error': '博客生成服务不可用'}), 500
+
+        document_knowledge = []
+        if document_ids:
+            logger.info(f"📄 接收到文档 ID 列表: {document_ids}")
+            db_service = get_db_service()
+            docs = db_service.get_documents_by_ids(document_ids)
+            logger.info(f"📄 从数据库查询到 {len(docs)} 个已就绪的文档")
+            for doc in docs:
+                markdown = doc.get('markdown_content', '')
+                logger.info(f"📄 文档 {doc.get('filename', '')}: status={doc.get('status')}, markdown_length={len(markdown)}")
+                if markdown:
+                    document_knowledge.append({
+                        'file_name': doc.get('filename', ''),
+                        'content': markdown,
+                        'source_type': 'document'
+                    })
+            logger.info(f"✅ 加载文档知识: {len(document_knowledge)} 条")
+
+        task_manager = get_task_manager()
+        task_id = task_manager.create_task()
+
+        blog_service.generate_async(
+            task_id=task_id,
+            topic=topic,
+            article_type=article_type,
+            target_audience=target_audience,
+            audience_adaptation=audience_adaptation,
+            target_length=target_length,
+            source_material=source_material,
+            document_ids=document_ids,
+            document_knowledge=document_knowledge,
+            image_style=image_style,
+            generate_cover_video=generate_cover_video,
+            video_aspect_ratio=video_aspect_ratio,
+            custom_config=custom_config,
+            task_manager=task_manager,
+            app=current_app._get_current_object()
+        )
+
+        return jsonify({
+            'success': True,
+            'task_id': task_id,
+            'message': '博客生成任务已创建，请订阅 /api/tasks/{task_id}/stream 获取进度',
+            'document_count': len(document_knowledge)
+        }), 202
+
+    except Exception as e:
+        logger.error(f"创建博客生成任务失败: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@blog_bp.route('/api/blog/generate/mini', methods=['POST'])
+def generate_blog_mini():
+    """创建 Mini 版博客生成任务（1个章节，完整流程）"""
+    try:
+        data = request.get_json()
+
+        if not data:
+            return jsonify({'success': False, 'error': '请提供 JSON 数据'}), 400
+
+        topic = data.get('topic', '')
+        if not topic:
+            return jsonify({'success': False, 'error': '请提供 topic 参数'}), 400
+
+        article_type = data.get('article_type', 'tutorial')
+        audience_adaptation = data.get('audience_adaptation', 'default')
+        image_style = data.get('image_style', '')
+        generate_cover_video = data.get('generate_cover_video', False)
+        video_aspect_ratio = data.get('video_aspect_ratio', '16:9')
+
+        logger.info(f"📝 Mini 博客生成请求: topic={topic}, article_type={article_type}, audience_adaptation={audience_adaptation}, image_style={image_style}, generate_cover_video={generate_cover_video}, video_aspect_ratio={video_aspect_ratio}")
+
+        blog_service = get_blog_service()
+        if not blog_service:
+            return jsonify({'success': False, 'error': '博客生成服务不可用'}), 500
+
+        task_manager = get_task_manager()
+        task_id = task_manager.create_task()
+
+        blog_service.generate_async(
+            task_id=task_id,
+            topic=topic,
+            article_type=article_type,
+            target_audience='intermediate',
+            audience_adaptation=audience_adaptation,
+            target_length='mini',
+            source_material=None,
+            document_ids=[],
+            document_knowledge=[],
+            image_style=image_style,
+            generate_cover_video=generate_cover_video,
+            video_aspect_ratio=video_aspect_ratio,
+            custom_config=None,
+            task_manager=task_manager,
+            app=current_app._get_current_object()
+        )
+
+        return jsonify({
+            'success': True,
+            'task_id': task_id,
+            'message': 'Mini 博客生成任务已创建（1个章节完整流程），请订阅 /api/tasks/{task_id}/stream 获取进度'
+        }), 202
+
+    except Exception as e:
+        logger.error(f"创建 Mini 博客生成任务失败: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@blog_bp.route('/api/blog/generate/sync', methods=['POST'])
+def generate_blog_sync():
+    """同步生成长文博客 (适用于短文章或测试)"""
+    try:
+        data = request.get_json()
+
+        if not data:
+            return jsonify({'success': False, 'error': '请提供 JSON 数据'}), 400
+
+        topic = data.get('topic', '')
+        if not topic:
+            return jsonify({'success': False, 'error': '请提供 topic 参数'}), 400
+
+        article_type = data.get('article_type', 'tutorial')
+        target_audience = data.get('target_audience', 'intermediate')
+        target_length = data.get('target_length', 'medium')
+        source_material = data.get('source_material', None)
+
+        blog_service = get_blog_service()
+        if not blog_service:
+            return jsonify({'success': False, 'error': '博客生成服务不可用'}), 500
+
+        result = blog_service.generate_sync(
+            topic=topic,
+            article_type=article_type,
+            target_audience=target_audience,
+            target_length=target_length,
+            source_material=source_material
+        )
+
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"博客生成失败: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500

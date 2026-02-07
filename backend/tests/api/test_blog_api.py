@@ -363,7 +363,7 @@ class TestDocumentUploadAPI:
 
         # Mock database service to return document
         with client.application.app_context():
-            from app import get_db_service
+            from routes.blog_routes import get_db_service
             mock_db = get_db_service()
 
             # Mock create_document to return a document ID
@@ -422,7 +422,7 @@ class TestDocumentUploadAPI:
     def test_get_document_status(self, client, mock_file_parser):
         """测试获取文档状态"""
         with client.application.app_context():
-            from app import get_db_service
+            from routes.blog_routes import get_db_service
             mock_db = get_db_service()
 
             # Mock document data
@@ -457,7 +457,7 @@ class TestDocumentUploadAPI:
     def test_get_document_status_not_found(self, client, mock_file_parser):
         """测试获取不存在的文档状态"""
         with client.application.app_context():
-            from app import get_db_service
+            from routes.blog_routes import get_db_service
             mock_db = get_db_service()
             mock_db.get_document.return_value = None
 
@@ -474,7 +474,7 @@ class TestDocumentUploadAPI:
         import tempfile
 
         with client.application.app_context():
-            from app import get_db_service
+            from routes.blog_routes import get_db_service
             mock_db = get_db_service()
 
             # 创建临时文件
@@ -511,7 +511,7 @@ class TestDocumentUploadAPI:
     def test_delete_document_not_found(self, client, mock_file_parser):
         """测试删除不存在的文档"""
         with client.application.app_context():
-            from app import get_db_service
+            from routes.blog_routes import get_db_service
             mock_db = get_db_service()
             mock_db.get_document.return_value = None
 
