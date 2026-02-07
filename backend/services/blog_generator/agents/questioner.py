@@ -4,11 +4,53 @@ Questioner Agent - 追问深化
 
 import json
 import logging
+import os
 from typing import Dict, Any, List
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ..prompts import get_prompt_manager
 
+# 从环境变量读取并行配置，默认为 3
+MAX_WORKERS = int(os.environ.get('BLOG_GENERATOR_MAX_WORKERS', '3'))
+
+def _should_use_parallel():
+    """判断是否应该使用并行执行。当开启追踪时禁用并行，避免上下文丢失。"""
+    if os.environ.get('TRACE_ENABLED', 'false').lower() == 'true':
+        return False
+    return True
+
 logger = logging.getLogger(__name__)
+
+# Langfuse 追踪装饰器（只在 TRACE_ENABLED=true 时启用）
+def _get_langfuse_client():
+    """获取 Langfuse client，未启用时返回 None"""
+    if os.environ.get('TRACE_ENABLED', 'false').lower() == 'true':
+        try:
+            from langfuse import get_client
+            return get_client()
+        except ImportError:
+            pass
+        except Exception:
+            pass
+    return None
+
+def _get_observe_decorator():
+    """获取 Langfuse observe 装饰器，未启用时返回空装饰器"""
+    if os.environ.get('TRACE_ENABLED', 'false').lower() == 'true':
+        try:
+            from langfuse import observe
+            return observe
+        except ImportError:
+            pass
+    # 返回空装饰器
+    def noop_decorator(*args, **kwargs):
+        def wrapper(func):
+            return func
+        return wrapper if not args or not callable(args[0]) else func
+    return noop_decorator
+
+observe = _get_observe_decorator()
+langfuse_client = _get_langfuse_client()
 
 
 class QuestionerAgent:
@@ -25,11 +67,13 @@ class QuestionerAgent:
         """
         self.llm = llm_client
     
+    @observe(name="questioner.check_depth", as_type="generation")
     def check_depth(
         self,
         section_content: str,
         section_outline: Dict[str, Any],
-        depth_requirement: str = "medium"
+        depth_requirement: str = "medium",
+        **kwargs  # 接收 langfuse_parent_trace_id 等参数
     ) -> Dict[str, Any]:
         """
         检查章节内容深度
@@ -55,6 +99,14 @@ class QuestionerAgent:
                 response_format={"type": "json_object"}
             )
             
+            if not response or not response.strip():
+                logger.warning(f"深度检查返回空响应，默认通过")
+                return {
+                    "is_detailed_enough": True,
+                    "depth_score": 80,
+                    "vague_points": []
+                }
+            
             result = json.loads(response)
             return {
                 "is_detailed_enough": result.get("is_detailed_enough", True),
@@ -62,6 +114,13 @@ class QuestionerAgent:
                 "vague_points": result.get("vague_points", [])
             }
             
+        except json.JSONDecodeError as e:
+            logger.warning(f"深度检查 JSON 解析失败: {e}，响应内容: {response[:200] if response else '空'}，默认通过")
+            return {
+                "is_detailed_enough": True,
+                "depth_score": 80,
+                "vague_points": []
+            }
         except Exception as e:
             logger.error(f"深度检查失败: {e}")
             # 默认通过
@@ -71,12 +130,14 @@ class QuestionerAgent:
                 "vague_points": []
             }
     
-    def run(self, state: Dict[str, Any]) -> Dict[str, Any]:
+    @observe(name="questioner.run")
+    def run(self, state: Dict[str, Any], max_workers: int = None) -> Dict[str, Any]:
         """
-        执行追问检查
+        执行追问检查（并行）
         
         Args:
             state: 共享状态
+            max_workers: 最大并行数
             
         Returns:
             更新后的状态
@@ -106,31 +167,114 @@ class QuestionerAgent:
         }
         depth_requirement = depth_map.get(target_length, 'medium')
         
-        logger.info(f"开始追问检查 (深度要求: {depth_requirement})")
+        # 使用环境变量配置或传入的参数
+        if max_workers is None:
+            max_workers = MAX_WORKERS
         
+        use_parallel = _should_use_parallel()
+        if use_parallel:
+            logger.info(f"开始追问检查 (深度要求: {depth_requirement})，{len(sections)} 个章节，使用 {min(max_workers, len(sections))} 个并行线程")
+        else:
+            logger.info(f"开始追问检查 (深度要求: {depth_requirement})，{len(sections)} 个章节，使用串行模式（追踪已启用）")
+        
+        # 准备任务列表
+        tasks = []
+        for i, section in enumerate(sections):
+            section_outline = sections_outline[i] if i < len(sections_outline) else {}
+            tasks.append({
+                'order_idx': i,
+                'section': section,
+                'section_outline': section_outline,
+                'depth_requirement': depth_requirement
+            })
+        
+        # 执行检查
+        results = [None] * len(tasks)
+        
+        def check_single_task(task):
+            """单个章节检查任务"""
+            try:
+                result = self.check_depth(
+                    section_content=task['section'].get('content', ''),
+                    section_outline=task['section_outline'],
+                    depth_requirement=task['depth_requirement']
+                )
+                return {
+                    'success': True,
+                    'order_idx': task['order_idx'],
+                    'section': task['section'],
+                    'result': result
+                }
+            except Exception as e:
+                logger.error(f"章节检查失败 [{task['section'].get('title', '')}]: {e}")
+                return {
+                    'success': False,
+                    'order_idx': task['order_idx'],
+                    'section': task['section'],
+                    'result': {
+                        'is_detailed_enough': True,
+                        'depth_score': 80,
+                        'vague_points': []
+                    }
+                }
+        
+        if use_parallel:
+            # 并行执行
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(check_single_task, task): task for task in tasks}
+                
+                for future in as_completed(futures):
+                    result = future.result()
+                    order_idx = result['order_idx']
+                    results[order_idx] = result
+        else:
+            # 串行执行（追踪模式）- 直接调用方法以保持 Langfuse 上下文
+            for task in tasks:
+                try:
+                    check_result = self.check_depth(
+                        section_content=task['section'].get('content', ''),
+                        section_outline=task['section_outline'],
+                        depth_requirement=task['depth_requirement']
+                    )
+                    results[task['order_idx']] = {
+                        'success': True,
+                        'order_idx': task['order_idx'],
+                        'section': task['section'],
+                        'result': check_result
+                    }
+                except Exception as e:
+                    logger.error(f"章节检查失败 [{task['section'].get('title', '')}]: {e}")
+                    results[task['order_idx']] = {
+                        'success': False,
+                        'order_idx': task['order_idx'],
+                        'section': task['section'],
+                        'result': {
+                            'is_detailed_enough': True,
+                            'depth_score': 80,
+                            'vague_points': []
+                        }
+                    }
+        
+        # 组装结果
         question_results = []
         all_detailed = True
         
-        for i, section in enumerate(sections):
-            section_outline = sections_outline[i] if i < len(sections_outline) else {}
-            
-            result = self.check_depth(
-                section_content=section.get('content', ''),
-                section_outline=section_outline,
-                depth_requirement=depth_requirement
-            )
-            
-            question_result = {
-                "section_id": section.get('id', f'section_{i+1}'),
-                "is_detailed_enough": result.get('is_detailed_enough', True),
-                "depth_score": result.get('depth_score', 80),
-                "vague_points": result.get('vague_points', [])
-            }
-            question_results.append(question_result)
-            
-            if not result.get('is_detailed_enough', True):
-                all_detailed = False
-                logger.info(f"章节需要深化: {section.get('title', '')} (得分: {result.get('depth_score', 0)})")
+        for result in results:
+            if result:
+                check_result = result['result']
+                section = result['section']
+                
+                question_result = {
+                    "section_id": section.get('id', f'section_{result["order_idx"]+1}'),
+                    "is_detailed_enough": check_result.get('is_detailed_enough', True),
+                    "depth_score": check_result.get('depth_score', 80),
+                    "vague_points": check_result.get('vague_points', [])
+                }
+                question_results.append(question_result)
+                
+                if not check_result.get('is_detailed_enough', True):
+                    all_detailed = False
+                    logger.info(f"章节需要深化: {section.get('title', '')} (得分: {check_result.get('depth_score', 0)})")
         
         state['question_results'] = question_results
         state['all_sections_detailed'] = all_detailed

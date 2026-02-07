@@ -22,6 +22,8 @@ if os.environ.get('TRACE_ENABLED', 'false').lower() == 'true':
 
         _langfuse_handler = LangfuseCallbackHandler()
         print("🔍 Langfuse 追踪已启用，打开 Langfuse 控制台查看调用链路")
+        # 注意：不使用 ThreadingInstrumentor，因为它与 LangGraph 内部线程池冲突
+        # 并行任务的 trace 上下文通过 langfuse_parent_trace_id 手动传递
     except ImportError:
         print("⚠️ TRACE_ENABLED=true 但未安装 Langfuse，请运行: pip install langfuse")
     except Exception as e:

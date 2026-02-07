@@ -43,3 +43,7 @@ jieba>=0.42.1
 # ============ 多平台发布 ============
 playwright>=1.40.0
 pyyaml>=6.0
+
+# ============ Langfuse 追踪 ============
+langfuse>=3.0.0
+opentelemetry-instrumentation-threading>=0.48b0

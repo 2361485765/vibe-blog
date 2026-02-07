@@ -13,7 +13,44 @@ from ..prompts import get_prompt_manager
 # 从环境变量读取并行配置，默认为 3
 MAX_WORKERS = int(os.environ.get('BLOG_GENERATOR_MAX_WORKERS', '3'))
 
+def _should_use_parallel():
+    """判断是否应该使用并行执行。当开启追踪时禁用并行，避免上下文丢失。"""
+    if os.environ.get('TRACE_ENABLED', 'false').lower() == 'true':
+        return False
+    return True
+
 logger = logging.getLogger(__name__)
+
+# Langfuse 追踪装饰器（只在 TRACE_ENABLED=true 时启用）
+def _get_langfuse_client():
+    """获取 Langfuse client，未启用时返回 None"""
+    if os.environ.get('TRACE_ENABLED', 'false').lower() == 'true':
+        try:
+            from langfuse import get_client
+            return get_client()
+        except ImportError:
+            pass
+        except Exception:
+            pass
+    return None
+
+def _get_observe_decorator():
+    """获取 Langfuse observe 装饰器，未启用时返回空装饰器"""
+    if os.environ.get('TRACE_ENABLED', 'false').lower() == 'true':
+        try:
+            from langfuse import observe
+            return observe
+        except ImportError:
+            pass
+    # 返回空装饰器
+    def noop_decorator(*args, **kwargs):
+        def wrapper(func):
+            return func
+        return wrapper if not args or not callable(args[0]) else func
+    return noop_decorator
+
+observe = _get_observe_decorator()
+langfuse_client = _get_langfuse_client()
 
 
 class WriterAgent:
@@ -30,6 +67,7 @@ class WriterAgent:
         """
         self.llm = llm_client
     
+    @observe(name="writer.write_section", as_type="generation")
     def write_section(
         self,
         section_outline: Dict[str, Any],
@@ -39,7 +77,8 @@ class WriterAgent:
         audience_adaptation: str = "technical-beginner",
         search_results: List[Dict[str, Any]] = None,
         verbatim_data: List[Dict[str, Any]] = None,
-        learning_objectives: List[Dict[str, Any]] = None
+        learning_objectives: List[Dict[str, Any]] = None,
+        **kwargs  # 接收 langfuse_parent_trace_id 等参数
     ) -> Dict[str, Any]:
         """
         撰写单个章节
@@ -91,12 +130,14 @@ class WriterAgent:
             logger.error(f"章节撰写失败 [{section_outline.get('title', '')}]: {e}")
             raise
     
+    @observe(name="writer.enhance_section", as_type="generation")
     def enhance_section(
         self,
         original_content: str,
         vague_points: List[Dict[str, Any]],
         section_title: str = "",
-        progress_info: str = ""
+        progress_info: str = "",
+        **kwargs  # 接收 langfuse_parent_trace_id 等参数
     ) -> str:
         """
         根据追问深化章节内容
@@ -138,12 +179,14 @@ class WriterAgent:
             logger.error(f"章节深化失败: {e}")
             return original_content
     
+    @observe(name="writer.correct_section", as_type="generation")
     def correct_section(
         self,
         original_content: str,
         issues: List[Dict[str, Any]],
         section_title: str = "",
-        progress_info: str = ""
+        progress_info: str = "",
+        **kwargs  # 接收 langfuse_parent_trace_id 等参数
     ) -> str:
         """
         更正章节内容（Mini/Short 模式专用）
@@ -196,6 +239,7 @@ class WriterAgent:
             logger.error(f"章节更正失败: {e}")
             return original_content
     
+    @observe(name="writer.run")
     def run(self, state: Dict[str, Any], max_workers: int = None) -> Dict[str, Any]:
         """
         执行内容撰写（并行）
@@ -259,12 +303,16 @@ class WriterAgent:
         if max_workers is None:
             max_workers = MAX_WORKERS
         
-        logger.info(f"开始撰写内容: {len(tasks)} 个章节，使用 {min(max_workers, len(tasks))} 个并行线程")
+        use_parallel = _should_use_parallel()
+        if use_parallel:
+            logger.info(f"开始撰写内容: {len(tasks)} 个章节，使用 {min(max_workers, len(tasks))} 个并行线程")
+        else:
+            logger.info(f"开始撰写内容: {len(tasks)} 个章节，使用串行模式（追踪已启用）")
         
-        # 第二步：并行撰写章节
+        # 第二步：撰写章节
         results = [None] * len(tasks)
         
-        def write_task(task):
+        def write_single_task(task):
             """单个章节撰写任务"""
             try:
                 section = self.write_section(
@@ -291,16 +339,46 @@ class WriterAgent:
                     'error': str(e)
                 }
         
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(write_task, task): task for task in tasks}
-            
-            for future in as_completed(futures):
-                result = future.result()
-                order_idx = result['order_idx']
-                results[order_idx] = result
+        if use_parallel:
+            # 并行执行
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(write_single_task, task): task for task in tasks}
                 
-                if result['success']:
-                    logger.info(f"章节撰写完成: {result['section'].get('title', '')}")
+                for future in as_completed(futures):
+                    result = future.result()
+                    order_idx = result['order_idx']
+                    results[order_idx] = result
+                    
+                    if result['success']:
+                        logger.info(f"章节撰写完成: {result['section'].get('title', '')}")
+        else:
+            # 串行执行（追踪模式）- 直接调用方法以保持 Langfuse 上下文
+            for task in tasks:
+                try:
+                    section = self.write_section(
+                        section_outline=task['section_outline'],
+                        previous_section_summary=task['prev_summary'],
+                        next_section_preview=task['next_preview'],
+                        background_knowledge=task['background_knowledge'],
+                        audience_adaptation=task.get('audience_adaptation', 'technical-beginner'),
+                        search_results=task.get('search_results', []),
+                        verbatim_data=task.get('verbatim_data', []),
+                        learning_objectives=task.get('learning_objectives', [])
+                    )
+                    results[task['order_idx']] = {
+                        'success': True,
+                        'order_idx': task['order_idx'],
+                        'section': section
+                    }
+                    logger.info(f"章节撰写完成: {section.get('title', '')}")
+                except Exception as e:
+                    logger.error(f"章节撰写失败 [{task['section_outline'].get('title', '')}]: {e}")
+                    results[task['order_idx']] = {
+                        'success': False,
+                        'order_idx': task['order_idx'],
+                        'title': task['section_outline'].get('title', ''),
+                        'error': str(e)
+                    }
         
         # 第三步：按原始顺序组装结果
         sections = []

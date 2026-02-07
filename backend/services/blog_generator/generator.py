@@ -3,7 +3,15 @@
 """
 
 import logging
+import os
 from typing import Dict, Any, Optional, Literal, Callable
+
+
+def _should_use_parallel():
+    """判断是否应该使用并行执行。当开启追踪时禁用并行，避免上下文丢失。"""
+    if os.environ.get('TRACE_ENABLED', 'false').lower() == 'true':
+        return False
+    return True
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
@@ -300,7 +308,10 @@ class BlogGenerator:
         return self.questioner.run(state)
     
     def _deepen_content_node(self, state: SharedState) -> SharedState:
-        """内容深化节点"""
+        """内容深化节点（并行）"""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import os
+        
         logger.info("=== Step 4.1: 内容深化 ===")
         before_count = _get_content_word_count(state)
         state['questioning_count'] = state.get('questioning_count', 0) + 1
@@ -311,9 +322,21 @@ class BlogGenerator:
             if not r.get('is_detailed_enough', True)
         ]
         total_to_deepen = len(sections_to_deepen)
-        logger.info(f"开始深化 {total_to_deepen} 个章节")
         
-        # 根据追问结果深化内容
+        if total_to_deepen == 0:
+            logger.info("没有需要深化的章节")
+            return state
+        
+        max_workers = int(os.environ.get('BLOG_GENERATOR_MAX_WORKERS', '3'))
+        use_parallel = _should_use_parallel()
+        
+        if use_parallel:
+            logger.info(f"开始深化 {total_to_deepen} 个章节，使用 {min(max_workers, total_to_deepen)} 个并行线程")
+        else:
+            logger.info(f"开始深化 {total_to_deepen} 个章节，使用串行模式（追踪已启用）")
+        
+        # 准备任务列表
+        tasks = []
         for idx, result in enumerate(sections_to_deepen, 1):
             section_id = result.get('section_id', '')
             vague_points = result.get('vague_points', [])
@@ -321,20 +344,82 @@ class BlogGenerator:
             # 找到对应章节
             for section in state.get('sections', []):
                 if section.get('id') == section_id:
-                    section_title = section.get('title', section_id)
+                    tasks.append({
+                        'order_idx': idx - 1,
+                        'section': section,
+                        'section_id': section_id,
+                        'vague_points': vague_points,
+                        'progress_info': f"[{idx}/{total_to_deepen}]"
+                    })
+                    break
+        
+        # 执行深化
+        def enhance_single_task(task):
+            """单个章节深化任务"""
+            try:
+                section = task['section']
+                section_title = section.get('title', task['section_id'])
+                original_length = len(section.get('content', ''))
+                
+                enhanced_content = self.writer.enhance_section(
+                    original_content=section.get('content', ''),
+                    vague_points=task['vague_points'],
+                    section_title=section_title,
+                    progress_info=task['progress_info']
+                )
+                
+                new_length = len(enhanced_content)
+                logger.info(f"章节深化完成: {section_title} (+{new_length - original_length} 字)")
+                
+                return {
+                    'success': True,
+                    'section_id': task['section_id'],
+                    'enhanced_content': enhanced_content
+                }
+            except Exception as e:
+                logger.error(f"章节深化失败 [{task['section_id']}]: {e}")
+                return {
+                    'success': False,
+                    'section_id': task['section_id'],
+                    'enhanced_content': None
+                }
+        
+        if use_parallel:
+            # 并行执行
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(enhance_single_task, task): task for task in tasks}
+                
+                for future in as_completed(futures):
+                    result = future.result()
+                    if result['success']:
+                        for section in state.get('sections', []):
+                            if section.get('id') == result['section_id']:
+                                section['content'] = result['enhanced_content']
+                                break
+        else:
+            # 串行执行（追踪模式）- 直接调用方法以保持 Langfuse 上下文
+            for task in tasks:
+                try:
+                    section = task['section']
+                    section_title = section.get('title', task['section_id'])
                     original_length = len(section.get('content', ''))
                     
                     enhanced_content = self.writer.enhance_section(
                         original_content=section.get('content', ''),
-                        vague_points=vague_points,
+                        vague_points=task['vague_points'],
                         section_title=section_title,
-                        progress_info=f"[{idx}/{total_to_deepen}]"
+                        progress_info=task['progress_info']
                     )
-                    section['content'] = enhanced_content
                     
                     new_length = len(enhanced_content)
                     logger.info(f"章节深化完成: {section_title} (+{new_length - original_length} 字)")
-                    break
+                    
+                    for s in state.get('sections', []):
+                        if s.get('id') == task['section_id']:
+                            s['content'] = enhanced_content
+                            break
+                except Exception as e:
+                    logger.error(f"章节深化失败 [{task['section_id']}]: {e}")
         
         after_count = _get_content_word_count(state)
         _log_word_count_diff("内容深化", before_count, after_count)
@@ -387,7 +472,10 @@ class BlogGenerator:
         return self.reviewer.run(state)
     
     def _revision_node(self, state: SharedState) -> SharedState:
-        """修订节点"""
+        """修订节点（并行）"""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import os
+        
         logger.info("=== Step 7.1: 修订 ===")
         before_count = _get_content_word_count(state)
         state['revision_count'] = state.get('revision_count', 0) + 1
@@ -396,6 +484,13 @@ class BlogGenerator:
         review_issues = state.get('review_issues', [])
         total_issues = len(review_issues)
         target_length = state.get('target_length', 'medium')
+        
+        if total_issues == 0:
+            logger.info("没有需要修订的问题")
+            return state
+        
+        max_workers = int(os.environ.get('BLOG_GENERATOR_MAX_WORKERS', '3'))
+        use_parallel = _should_use_parallel()
         
         # Mini/Short 模式：按章节分组问题，使用 correct_section（只更正不扩展）
         if target_length in ('mini', 'short'):
@@ -411,42 +506,162 @@ class BlogGenerator:
                     'affected_content': issue.get('affected_content', '')
                 })
             
-            # 对每个有问题的章节进行更正
+            if use_parallel:
+                logger.info(f"开始更正 {len(section_issues)} 个章节，使用 {min(max_workers, len(section_issues))} 个并行线程")
+            else:
+                logger.info(f"开始更正 {len(section_issues)} 个章节，使用串行模式（追踪已启用）")
+            
+            # 准备任务列表
+            tasks = []
             for idx, (section_id, issues) in enumerate(section_issues.items(), 1):
                 for section in state.get('sections', []):
                     if section.get('id') == section_id:
-                        section_title = section.get('title', section_id)
+                        tasks.append({
+                            'section': section,
+                            'section_id': section_id,
+                            'issues': issues,
+                            'progress_info': f"[{idx}/{len(section_issues)}]"
+                        })
+                        break
+            
+            # 执行更正
+            def correct_single_task(task):
+                try:
+                    section = task['section']
+                    section_title = section.get('title', task['section_id'])
+                    corrected_content = self.writer.correct_section(
+                        original_content=section.get('content', ''),
+                        issues=task['issues'],
+                        section_title=section_title,
+                        progress_info=task['progress_info']
+                    )
+                    return {
+                        'success': True,
+                        'section_id': task['section_id'],
+                        'content': corrected_content
+                    }
+                except Exception as e:
+                    logger.error(f"章节更正失败 [{task['section_id']}]: {e}")
+                    return {
+                        'success': False,
+                        'section_id': task['section_id'],
+                        'content': None
+                    }
+            
+            if use_parallel:
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    futures = {executor.submit(correct_single_task, task): task for task in tasks}
+                    for future in as_completed(futures):
+                        result = future.result()
+                        if result['success']:
+                            for section in state.get('sections', []):
+                                if section.get('id') == result['section_id']:
+                                    section['content'] = result['content']
+                                    break
+            else:
+                # 串行执行（追踪模式）- 直接调用方法以保持 Langfuse 上下文
+                for task in tasks:
+                    try:
+                        section = task['section']
+                        section_title = section.get('title', task['section_id'])
                         corrected_content = self.writer.correct_section(
                             original_content=section.get('content', ''),
-                            issues=issues,
+                            issues=task['issues'],
                             section_title=section_title,
-                            progress_info=f"[{idx}/{len(section_issues)}]"
+                            progress_info=task['progress_info']
                         )
-                        section['content'] = corrected_content
-                        break
+                        for s in state.get('sections', []):
+                            if s.get('id') == task['section_id']:
+                                s['content'] = corrected_content
+                                break
+                    except Exception as e:
+                        logger.error(f"章节更正失败 [{task['section_id']}]: {e}")
         else:
             # 其他模式：使用 enhance_section（可扩展内容）
+            if use_parallel:
+                logger.info(f"开始修订 {total_issues} 个问题，使用 {min(max_workers, total_issues)} 个并行线程")
+            else:
+                logger.info(f"开始修订 {total_issues} 个问题，使用串行模式（追踪已启用）")
+            
+            # 准备任务列表
+            tasks = []
             for idx, issue in enumerate(review_issues, 1):
                 section_id = issue.get('section_id', '')
                 suggestion = issue.get('suggestion', '')
                 
-                # 找到对应章节并修订
                 for section in state.get('sections', []):
                     if section.get('id') == section_id:
-                        section_title = section.get('title', section_id)
+                        tasks.append({
+                            'section': section,
+                            'section_id': section_id,
+                            'issue': issue,
+                            'suggestion': suggestion,
+                            'progress_info': f"[{idx}/{total_issues}]"
+                        })
+                        break
+            
+            # 执行增强
+            def enhance_single_task(task):
+                try:
+                    section = task['section']
+                    section_title = section.get('title', task['section_id'])
+                    enhanced_content = self.writer.enhance_section(
+                        original_content=section.get('content', ''),
+                        vague_points=[{
+                            'location': section_title,
+                            'issue': task['issue'].get('description', ''),
+                            'question': task['suggestion'],
+                            'suggestion': '根据审核建议修改'
+                        }],
+                        section_title=section_title,
+                        progress_info=task['progress_info']
+                    )
+                    return {
+                        'success': True,
+                        'section_id': task['section_id'],
+                        'content': enhanced_content
+                    }
+                except Exception as e:
+                    logger.error(f"章节修订失败 [{task['section_id']}]: {e}")
+                    return {
+                        'success': False,
+                        'section_id': task['section_id'],
+                        'content': None
+                    }
+            
+            if use_parallel:
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    futures = {executor.submit(enhance_single_task, task): task for task in tasks}
+                    for future in as_completed(futures):
+                        result = future.result()
+                        if result['success']:
+                            for section in state.get('sections', []):
+                                if section.get('id') == result['section_id']:
+                                    section['content'] = result['content']
+                                    break
+            else:
+                # 串行执行（追踪模式）- 直接调用方法以保持 Langfuse 上下文
+                for task in tasks:
+                    try:
+                        section = task['section']
+                        section_title = section.get('title', task['section_id'])
                         enhanced_content = self.writer.enhance_section(
                             original_content=section.get('content', ''),
                             vague_points=[{
                                 'location': section_title,
-                                'issue': issue.get('description', ''),
-                                'question': suggestion,
+                                'issue': task['issue'].get('description', ''),
+                                'question': task['suggestion'],
                                 'suggestion': '根据审核建议修改'
                             }],
                             section_title=section_title,
-                            progress_info=f"[{idx}/{total_issues}]"
+                            progress_info=task['progress_info']
                         )
-                        section['content'] = enhanced_content
-                        break
+                        for s in state.get('sections', []):
+                            if s.get('id') == task['section_id']:
+                                s['content'] = enhanced_content
+                                break
+                    except Exception as e:
+                        logger.error(f"章节修订失败 [{task['section_id']}]: {e}")
         
         after_count = _get_content_word_count(state)
         _log_word_count_diff("修订", before_count, after_count)

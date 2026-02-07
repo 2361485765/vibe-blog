@@ -15,7 +15,44 @@ from ...image_service import get_image_service, AspectRatio, ImageSize
 # 从环境变量读取并行配置，默认为 3
 MAX_WORKERS = int(os.environ.get('BLOG_GENERATOR_MAX_WORKERS', '3'))
 
+def _should_use_parallel():
+    """判断是否应该使用并行执行。当开启追踪时禁用并行，避免上下文丢失。"""
+    if os.environ.get('TRACE_ENABLED', 'false').lower() == 'true':
+        return False
+    return True
+
 logger = logging.getLogger(__name__)
+
+# Langfuse 追踪装饰器（只在 TRACE_ENABLED=true 时启用）
+def _get_langfuse_client():
+    """获取 Langfuse client，未启用时返回 None"""
+    if os.environ.get('TRACE_ENABLED', 'false').lower() == 'true':
+        try:
+            from langfuse import get_client
+            return get_client()
+        except ImportError:
+            pass
+        except Exception:
+            pass
+    return None
+
+def _get_observe_decorator():
+    """获取 Langfuse observe 装饰器，未启用时返回空装饰器"""
+    if os.environ.get('TRACE_ENABLED', 'false').lower() == 'true':
+        try:
+            from langfuse import observe
+            return observe
+        except ImportError:
+            pass
+    # 返回空装饰器
+    def noop_decorator(*args, **kwargs):
+        def wrapper(func):
+            return func
+        return wrapper if not args or not callable(args[0]) else func
+    return noop_decorator
+
+observe = _get_observe_decorator()
+langfuse_client = _get_langfuse_client()
 
 # ASCII 流程图特征模式（强特征 - 必须出现）
 ASCII_FLOWCHART_STRONG_PATTERNS = [
@@ -195,13 +232,15 @@ class ArtistAgent:
         
         return sections
     
+    @observe(name="artist.generate_image", as_type="generation")
     def generate_image(
         self,
         image_type: str,
         description: str,
         context: str,
         audience_adaptation: str = "technical-beginner",
-        article_title: str = ""  # 新增：文章标题
+        article_title: str = "",  # 新增：文章标题
+        **kwargs  # 接收 langfuse_parent_trace_id 等参数
     ) -> Dict[str, Any]:
         """
         生成配图
@@ -345,9 +384,11 @@ class ArtistAgent:
         
         return placeholders
     
+    @observe(name="artist.detect_missing_diagrams", as_type="generation")
     def detect_missing_diagrams(
         self,
-        sections: List[Dict[str, Any]]
+        sections: List[Dict[str, Any]],
+        **kwargs  # 接收 langfuse_parent_trace_id 等参数
     ) -> List[Dict[str, Any]]:
         """
         检测章节中缺失的图表
@@ -406,6 +447,7 @@ class ArtistAgent:
         
         return diagram_tasks
     
+    @observe(name="artist.run")
     def run(self, state: Dict[str, Any], max_workers: int = None) -> Dict[str, Any]:
         """
         执行配图生成（并行）
@@ -539,12 +581,16 @@ class ArtistAgent:
         if max_workers is None:
             max_workers = MAX_WORKERS
         
-        logger.info(f"开始生成配图 (共 {total_image_count} 张)，使用 {min(max_workers, total_image_count)} 个并行线程")
+        use_parallel = _should_use_parallel()
+        if use_parallel:
+            logger.info(f"开始生成配图 (共 {total_image_count} 张)，使用 {min(max_workers, total_image_count)} 个并行线程")
+        else:
+            logger.info(f"开始生成配图 (共 {total_image_count} 张)，使用串行模式（追踪已启用）")
         
-        # 第二步：并行生成图片
+        # 第二步：生成图片
         results = [None] * len(tasks)
         
-        def generate_task(task):
+        def generate_single_task(task):
             """单个图片生成任务"""
             try:
                 # 生成图片
@@ -553,7 +599,7 @@ class ArtistAgent:
                     description=task['description'],
                     context=task['context'],
                     audience_adaptation=task.get('audience_adaptation', 'technical-beginner'),
-                    article_title=task.get('article_title', '')  # 新增：传递文章标题
+                    article_title=task.get('article_title', '')
                 )
                 
                 render_method = image.get('render_method', 'mermaid')
@@ -612,19 +658,76 @@ class ArtistAgent:
                     'error': str(e)
                 }
         
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(generate_task, task): task for task in tasks}
-            
-            for future in as_completed(futures):
-                result = future.result()
-                order_idx = result['order_idx']
-                results[order_idx] = result
+        if use_parallel:
+            # 并行执行
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(generate_single_task, task): task for task in tasks}
                 
-                if result['success']:
-                    img_id = result['image_resource']['id']
-                    img_type = tasks[order_idx]['image_type']
-                    source = result['source']
-                    logger.info(f"配图生成完成: {img_id} ({img_type}) [来源:{source}]")
+                for future in as_completed(futures):
+                    result = future.result()
+                    order_idx = result['order_idx']
+                    results[order_idx] = result
+                    
+                    if result['success']:
+                        img_id = result['image_resource']['id']
+                        img_type = tasks[order_idx]['image_type']
+                        source = result['source']
+                        logger.info(f"配图生成完成: {img_id} ({img_type}) [来源:{source}]")
+        else:
+            # 串行执行（追踪模式）- 直接调用方法以保持 Langfuse 上下文
+            for task in tasks:
+                try:
+                    image = self.generate_image(
+                        image_type=task['image_type'],
+                        description=task['description'],
+                        context=task['context'],
+                        audience_adaptation=task.get('audience_adaptation', 'technical-beginner'),
+                        article_title=task.get('article_title', '')
+                    )
+                    
+                    render_method = image.get('render_method', 'mermaid')
+                    rendered_path = None
+                    
+                    if render_method == 'ai_image':
+                        image_style = state.get('image_style', '')
+                        if task['source'] == 'outline' and task['section_idx'] == 0:
+                            aspect_ratio = state.get('aspect_ratio', '16:9')
+                        else:
+                            aspect_ratio = '16:9'
+                        
+                        article_title = task.get('article_title', '')
+                        rendered_path = self._render_ai_image(
+                            prompt=image.get('content', ''),
+                            caption=article_title,
+                            image_style=image_style,
+                            aspect_ratio=aspect_ratio
+                        )
+                        if rendered_path and not rendered_path.startswith('http'):
+                            rendered_path = f"./images/{rendered_path.split('/')[-1]}"
+                    
+                    results[task['order_idx']] = {
+                        'success': True,
+                        'order_idx': task['order_idx'],
+                        'section_idx': task['section_idx'],
+                        'source': task['source'],
+                        'image_resource': {
+                            "id": task['image_id'],
+                            "render_method": render_method,
+                            "content": image.get('content', ''),
+                            "caption": image.get('caption', ''),
+                            "rendered_path": rendered_path
+                        }
+                    }
+                    logger.info(f"配图生成完成: {task['image_id']} ({task['image_type']}) [来源:{task['source']}]")
+                except Exception as e:
+                    logger.error(f"配图生成失败 [{task['image_id']}]: {e}")
+                    results[task['order_idx']] = {
+                        'success': False,
+                        'order_idx': task['order_idx'],
+                        'section_idx': task['section_idx'],
+                        'image_id': task['image_id'],
+                        'error': str(e)
+                    }
         
         # 第三步：按原始顺序组装结果，更新章节关联
         images = []
