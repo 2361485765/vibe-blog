@@ -6,9 +6,23 @@ export const useThemeStore = defineStore('theme', () => {
   const savedTheme = localStorage.getItem('vibe-blog-theme')
   const isDark = ref(savedTheme === 'dark')
 
-  // 监听变化并保存到 localStorage
+  // 同步 dark-mode class 到 <html> 元素
+  const applyTheme = (dark: boolean) => {
+    const root = document.documentElement
+    if (dark) {
+      root.classList.add('dark-mode', 'dark')
+    } else {
+      root.classList.remove('dark-mode', 'dark')
+    }
+    localStorage.setItem('vibe-blog-theme', dark ? 'dark' : 'light')
+  }
+
+  // 初始化时同步一次
+  applyTheme(isDark.value)
+
+  // 监听变化
   watch(isDark, (newValue) => {
-    localStorage.setItem('vibe-blog-theme', newValue ? 'dark' : 'light')
+    applyTheme(newValue)
   })
 
   const toggleTheme = () => {

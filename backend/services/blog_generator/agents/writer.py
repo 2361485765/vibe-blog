@@ -8,7 +8,7 @@ import os
 from typing import Dict, Any, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from ..prompts.prompt_manager import get_prompt_manager
+from ..prompts import get_prompt_manager
 
 # 从环境变量读取并行配置，默认为 3
 MAX_WORKERS = int(os.environ.get('BLOG_GENERATOR_MAX_WORKERS', '3'))
@@ -70,11 +70,9 @@ class WriterAgent:
         )
         
         # 输出完整的 Writer Prompt 到日志（用于诊断）
-        logger.debug("=" * 80)
-        logger.debug(f"【Writer Prompt - 章节: {section_outline.get('title', 'Unknown')}】")
-        logger.debug("=" * 80)
-        logger.debug(prompt)
-        logger.debug("=" * 80)
+        logger.info(f"[Writer] ========== 章节 Prompt ({len(prompt)} 字): {section_outline.get('title', 'Unknown')} ==========")
+        logger.debug(prompt)  # 完整 Prompt 仍用 debug 级别
+        logger.info(f"[Writer] ========== Prompt 结束 ==========")
         
         try:
             response = self.llm.chat(
@@ -125,6 +123,11 @@ class WriterAgent:
             vague_points=vague_points
         )
         
+        # 输出深化 Prompt 信息
+        logger.info(f"[Writer] ========== 深化 Prompt ({len(prompt)} 字): {display_title} ==========")
+        logger.debug(prompt)
+        logger.info(f"[Writer] ========== Prompt 结束 ==========")
+        
         try:
             response = self.llm.chat(
                 messages=[{"role": "user", "content": prompt}]
@@ -133,6 +136,64 @@ class WriterAgent:
             
         except Exception as e:
             logger.error(f"章节深化失败: {e}")
+            return original_content
+    
+    def correct_section(
+        self,
+        original_content: str,
+        issues: List[Dict[str, Any]],
+        section_title: str = "",
+        progress_info: str = ""
+    ) -> str:
+        """
+        更正章节内容（Mini/Short 模式专用）
+        只删除/替换错误，不扩展内容
+        
+        Args:
+            original_content: 原始内容
+            issues: 审核问题列表，每个包含 severity, description, affected_content
+            section_title: 章节标题
+            progress_info: 进度信息 (如 "[1/3]")
+            
+        Returns:
+            更正后的内容（字数 ≤ 原文）
+        """
+        if not issues:
+            return original_content
+        
+        display_title = section_title if section_title else "(未知章节)"
+        display_progress = progress_info if progress_info else ""
+        logger.info(f"正在更正章节 {display_progress} {display_title} ({len(issues)} 个问题)")
+        
+        pm = get_prompt_manager()
+        prompt = pm.render_writer_correct(
+            section_title=section_title,
+            original_content=original_content,
+            issues=issues
+        )
+        
+        # 输出更正 Prompt 信息
+        original_word_count = len(original_content)
+        logger.info(f"[Writer] ========== 更正 Prompt ({len(prompt)} 字): {display_title} ==========")
+        logger.debug(prompt)
+        logger.info(f"[Writer] ========== Prompt 结束 ==========")
+        
+        try:
+            response = self.llm.chat(
+                messages=[{"role": "user", "content": prompt}]
+            )
+            
+            # 验证字数不超过原文
+            corrected_word_count = len(response)
+            if corrected_word_count > original_word_count * 1.1:  # 允许 10% 误差
+                logger.warning(f"更正后字数 ({corrected_word_count}) 超过原文 ({original_word_count})，保留原文")
+                return original_content
+            
+            logger.info(f"更正完成: {original_word_count} → {corrected_word_count} 字")
+            return response
+            
+        except Exception as e:
+            logger.error(f"章节更正失败: {e}")
             return original_content
     
     def run(self, state: Dict[str, Any], max_workers: int = None) -> Dict[str, Any]:

@@ -22,6 +22,26 @@ from .agents.search_coordinator import SearchCoordinator
 logger = logging.getLogger(__name__)
 
 
+def _get_content_word_count(state: Dict[str, Any]) -> int:
+    """计算当前 state 中所有章节内容的总字数"""
+    sections = state.get('sections', [])
+    total = 0
+    for section in sections:
+        content = section.get('content', '')
+        if content:
+            total += len(content)
+    return total
+
+
+def _log_word_count_diff(agent_name: str, before: int, after: int):
+    """记录字数变化的 diff"""
+    diff = after - before
+    if diff >= 0:
+        logger.info(f"📊 [{agent_name}] 字数变化: {before} → {after} (+{diff} 字)")
+    else:
+        logger.info(f"📊 [{agent_name}] 字数变化: {before} → {after} ({diff} 字)")
+
+
 class BlogGenerator:
     """
     长文博客生成器
@@ -158,7 +178,10 @@ class BlogGenerator:
     def _writer_node(self, state: SharedState) -> SharedState:
         """内容撰写节点"""
         logger.info("=== Step 3: 内容撰写 ===")
+        before_count = _get_content_word_count(state)
         result = self.writer.run(state)
+        after_count = _get_content_word_count(result)
+        _log_word_count_diff("Writer", before_count, after_count)
         # 初始化累积知识（首次写作后）
         if not result.get('accumulated_knowledge'):
             result['accumulated_knowledge'] = result.get('background_knowledge', '')
@@ -202,7 +225,7 @@ class BlogGenerator:
             logger.info("没有需要增强的内容")
             return state
         
-        from .prompts.prompt_manager import get_prompt_manager
+        from .prompts import get_prompt_manager
         pm = get_prompt_manager()
         
         # 第一步：收集需要增强的任务
@@ -279,6 +302,7 @@ class BlogGenerator:
     def _deepen_content_node(self, state: SharedState) -> SharedState:
         """内容深化节点"""
         logger.info("=== Step 4.1: 内容深化 ===")
+        before_count = _get_content_word_count(state)
         state['questioning_count'] = state.get('questioning_count', 0) + 1
         
         # 统计需要深化的章节
@@ -312,6 +336,8 @@ class BlogGenerator:
                     logger.info(f"章节深化完成: {section_title} (+{new_length - original_length} 字)")
                     break
         
+        after_count = _get_content_word_count(state)
+        _log_word_count_diff("内容深化", before_count, after_count)
         return state
     
     def _coder_and_artist_node(self, state: SharedState) -> SharedState:
@@ -337,9 +363,17 @@ class BlogGenerator:
             coder_future = executor.submit(run_coder)
             artist_future = executor.submit(run_artist)
             
-            # 等待两者完成
-            coder_future.result()
-            artist_future.result()
+            # 等待两者完成，并合并结果
+            coder_result = coder_future.result()
+            artist_result = artist_future.result()
+            
+            # 合并 artist 的结果到 state（特别是 section_images）
+            if artist_result:
+                if 'section_images' in artist_result:
+                    state['section_images'] = artist_result['section_images']
+                    logger.info(f"合并 section_images: {len(state['section_images'])} 张")
+                if 'images' in artist_result:
+                    state['images'] = artist_result['images']
         
         code_count = len(state.get('code_blocks', []))
         image_count = len(state.get('images', []))
@@ -355,36 +389,67 @@ class BlogGenerator:
     def _revision_node(self, state: SharedState) -> SharedState:
         """修订节点"""
         logger.info("=== Step 7.1: 修订 ===")
+        before_count = _get_content_word_count(state)
         state['revision_count'] = state.get('revision_count', 0) + 1
         
         # 根据审核问题修订内容
         review_issues = state.get('review_issues', [])
         total_issues = len(review_issues)
+        target_length = state.get('target_length', 'medium')
         
-        for idx, issue in enumerate(review_issues, 1):
-            section_id = issue.get('section_id', '')
-            issue_type = issue.get('issue_type', '')
-            suggestion = issue.get('suggestion', '')
+        # Mini/Short 模式：按章节分组问题，使用 correct_section（只更正不扩展）
+        if target_length in ('mini', 'short'):
+            # 按章节分组问题
+            section_issues = {}
+            for issue in review_issues:
+                section_id = issue.get('section_id', '')
+                if section_id not in section_issues:
+                    section_issues[section_id] = []
+                section_issues[section_id].append({
+                    'severity': issue.get('severity', 'medium'),
+                    'description': issue.get('description', ''),
+                    'affected_content': issue.get('affected_content', '')
+                })
             
-            # 找到对应章节并修订
-            for section in state.get('sections', []):
-                if section.get('id') == section_id:
-                    section_title = section.get('title', section_id)
-                    # 简单实现：将建议作为追问深化
-                    enhanced_content = self.writer.enhance_section(
-                        original_content=section.get('content', ''),
-                        vague_points=[{
-                            'location': section_title,
-                            'issue': issue.get('description', ''),
-                            'question': suggestion,
-                            'suggestion': '根据审核建议修改'
-                        }],
-                        section_title=section_title,
-                        progress_info=f"[{idx}/{total_issues}]"
-                    )
-                    section['content'] = enhanced_content
-                    break
+            # 对每个有问题的章节进行更正
+            for idx, (section_id, issues) in enumerate(section_issues.items(), 1):
+                for section in state.get('sections', []):
+                    if section.get('id') == section_id:
+                        section_title = section.get('title', section_id)
+                        corrected_content = self.writer.correct_section(
+                            original_content=section.get('content', ''),
+                            issues=issues,
+                            section_title=section_title,
+                            progress_info=f"[{idx}/{len(section_issues)}]"
+                        )
+                        section['content'] = corrected_content
+                        break
+        else:
+            # 其他模式：使用 enhance_section（可扩展内容）
+            for idx, issue in enumerate(review_issues, 1):
+                section_id = issue.get('section_id', '')
+                suggestion = issue.get('suggestion', '')
+                
+                # 找到对应章节并修订
+                for section in state.get('sections', []):
+                    if section.get('id') == section_id:
+                        section_title = section.get('title', section_id)
+                        enhanced_content = self.writer.enhance_section(
+                            original_content=section.get('content', ''),
+                            vague_points=[{
+                                'location': section_title,
+                                'issue': issue.get('description', ''),
+                                'question': suggestion,
+                                'suggestion': '根据审核建议修改'
+                            }],
+                            section_title=section_title,
+                            progress_info=f"[{idx}/{total_issues}]"
+                        )
+                        section['content'] = enhanced_content
+                        break
         
+        after_count = _get_content_word_count(state)
+        _log_word_count_diff("修订", before_count, after_count)
         return state
     
     def _assembler_node(self, state: SharedState) -> SharedState:
@@ -401,6 +466,26 @@ class BlogGenerator:
     
     def _should_revise(self, state: SharedState) -> Literal["revision", "assemble"]:
         """判断是否需要修订"""
+        target_length = state.get('target_length', 'medium')
+        
+        # Mini/Short 模式只处理 high 级别问题，且最多修订 1 轮
+        if target_length in ('mini', 'short'):
+            revision_count = state.get('revision_count', 0)
+            # Mini 模式最多修订 1 轮
+            if revision_count >= 1:
+                logger.info(f"[{target_length}] 模式：已达到最大修订轮数 (1)，跳过修订")
+                return "assemble"
+            
+            review_issues = state.get('review_issues', [])
+            high_issues = [i for i in review_issues if i.get('severity') == 'high']
+            if high_issues:
+                logger.info(f"[{target_length}] 模式：只处理 {len(high_issues)} 个 high 级别问题")
+                # 只保留 high 级别问题
+                state['review_issues'] = high_issues
+                return "revision"
+            logger.info(f"[{target_length}] 模式：无 high 级别问题，跳过修订")
+            return "assemble"
+        
         if not state.get('review_approved', True):
             if state.get('revision_count', 0) < self.max_revision_rounds:
                 return "revision"
@@ -410,6 +495,12 @@ class BlogGenerator:
 
     def _should_refine_search(self, state: SharedState) -> Literal["search", "continue"]:
         """判断是否需要细化搜索"""
+        # Mini/Short 模式跳过知识增强，直接进入追问阶段
+        target_length = state.get('target_length', 'medium')
+        if target_length in ('mini', 'short'):
+            logger.info(f"[{target_length}] 模式跳过知识增强")
+            return "continue"
+        
         gaps = state.get('knowledge_gaps', [])
         search_count = state.get('search_count', 0)
         max_count = state.get('max_search_count', 5)
