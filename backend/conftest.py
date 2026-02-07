@@ -15,13 +15,35 @@ sys.path.insert(0, backend_dir)
 # ============ Flask App Fixtures ============
 
 @pytest.fixture
-def app():
+def app(monkeypatch):
     """Create Flask app for testing."""
-    from app import app as flask_app
+    # Mock all services before importing app
+    from unittest.mock import MagicMock
+
+    # Mock service getters
+    mock_blog_svc = MagicMock()
+    mock_db_svc = MagicMock()
+    mock_task_mgr = MagicMock()
+    mock_file_parser = MagicMock()
+
+    monkeypatch.setattr('app.get_blog_service', lambda: mock_blog_svc)
+    monkeypatch.setattr('app.get_db_service', lambda: mock_db_svc)
+    monkeypatch.setattr('app.get_task_manager', lambda: mock_task_mgr)
+    monkeypatch.setattr('app.get_file_parser', lambda: mock_file_parser)
+
+    from app import create_app
+    flask_app = create_app()
     flask_app.config.update({
         'TESTING': True,
         'DEBUG': False,
     })
+
+    # Store mocks on app for access in tests
+    flask_app.mock_blog_service = mock_blog_svc
+    flask_app.mock_db_service = mock_db_svc
+    flask_app.mock_task_manager = mock_task_mgr
+    flask_app.mock_file_parser = mock_file_parser
+
     yield flask_app
 
 
@@ -153,6 +175,30 @@ def mock_env_vars(monkeypatch):
 
 
 # ============ Cleanup Fixtures ============
+
+@pytest.fixture
+def mock_blog_service(app):
+    """Get mock blog service from app."""
+    return app.mock_blog_service
+
+
+@pytest.fixture
+def mock_db_service(app):
+    """Get mock database service from app."""
+    return app.mock_db_service
+
+
+@pytest.fixture
+def mock_task_manager(app):
+    """Get mock task manager from app."""
+    return app.mock_task_manager
+
+
+@pytest.fixture
+def mock_file_parser(app):
+    """Get mock file parser from app."""
+    return app.mock_file_parser
+
 
 @pytest.fixture(autouse=True)
 def reset_mocks():
