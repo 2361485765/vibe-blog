@@ -71,13 +71,15 @@
         {{ contentType === 'xhs' ? '暂无小红书记录' : '// 暂无历史记录，生成博客后将自动保存' }}
       </div>
       <article
-        v-for="record in records"
+        v-for="(record, index) in records"
         :key="record.id"
         class="code-blog-card"
         :class="{
           'xhs-card': record.content_type === 'xhs',
-          'with-cover': showCoverPreview && (record.cover_video || record.cover_image)
+          'with-cover': showCoverPreview && (record.cover_video || record.cover_image),
+          'card-animate': animated
         }"
+        :style="animated ? { animationDelay: `${0.3 + index * 0.12}s` } : {}"
         @click="$emit('loadDetail', record.id)"
       >
         <!-- 封面预览 -->
@@ -172,15 +174,12 @@
       </article>
     </div>
 
-    <!-- 分页 -->
-    <div v-show="showList && currentTab === 'blogs' && totalPages > 1" class="history-pagination">
-      <button :disabled="currentPage <= 1" @click="$emit('loadPage', currentPage - 1)">« 上一页</button>
-      <template v-for="page in paginationPages" :key="page">
-        <span v-if="page === '...'" class="page-info">...</span>
-        <button v-else :class="{ active: page === currentPage }" @click="$emit('loadPage', page)">{{ page }}</button>
-      </template>
-      <button :disabled="currentPage >= totalPages" @click="$emit('loadPage', currentPage + 1)">下一页 »</button>
-      <span class="page-info">{{ currentPage }} / {{ totalPages }} 页</span>
+    <!-- Show More -->
+    <div v-show="showList && currentTab === 'blogs' && currentPage < totalPages" class="show-more-wrapper">
+      <button class="show-more-btn" @click="$emit('loadMore')">
+        <span>SHOW MORE</span>
+        <span class="show-more-plus">+</span>
+      </button>
     </div>
   </div>
 </template>
@@ -216,6 +215,7 @@ interface Props {
   currentPage: number
   totalPages: number
   contentTypeFilters: ContentTypeFilter[]
+  animated?: boolean
 }
 
 interface Emits {
@@ -224,7 +224,7 @@ interface Emits {
   (e: 'filterContentType', type: string): void
   (e: 'update:showCoverPreview', value: boolean): void
   (e: 'loadDetail', id: string): void
-  (e: 'loadPage', page: number): void
+  (e: 'loadMore'): void
 }
 
 const props = defineProps<Props>()
@@ -242,27 +242,6 @@ const formatRelativeTime = (timeStr: string) => {
   return date.toLocaleDateString('zh-CN')
 }
 
-const paginationPages = computed(() => {
-  const pages: (number | string)[] = []
-  const total = props.totalPages
-  const current = props.currentPage
-
-  if (total <= 7) {
-    for (let i = 1; i <= total; i++) {
-      pages.push(i)
-    }
-  } else {
-    pages.push(1)
-    if (current > 3) pages.push('...')
-    for (let i = Math.max(2, current - 1); i <= Math.min(total - 1, current + 1); i++) {
-      pages.push(i)
-    }
-    if (current < total - 2) pages.push('...')
-    pages.push(total)
-  }
-
-  return pages
-})
 </script>
 
 <style scoped>
@@ -493,6 +472,28 @@ const paginationPages = computed(() => {
   color: var(--color-text-tertiary);
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
+}
+
+/* 卡片打字机动画 */
+.code-blog-card.card-animate {
+  opacity: 0;
+  transform: translateY(16px);
+  animation: card-typewriter 0.4s ease forwards;
+}
+
+@keyframes card-typewriter {
+  0% {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  60% {
+    opacity: 0.8;
+    transform: translateY(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .code-blog-card {
@@ -764,45 +765,38 @@ const paginationPages = computed(() => {
   right: var(--space-sm);
 }
 
-.history-pagination {
+/* Show More */
+.show-more-wrapper {
   display: flex;
-  align-items: center;
   justify-content: center;
-  gap: var(--space-sm);
-  padding: var(--space-lg);
-  flex-wrap: wrap;
+  padding: var(--space-xl) 0 var(--space-md);
 }
 
-.history-pagination button {
-  padding: var(--space-xs) var(--space-sm);
-  background: var(--color-bg-card);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+.show-more-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-xl);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--color-text-secondary);
   color: var(--color-text-secondary);
-  font-size: var(--font-size-xs);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.08em;
   cursor: pointer;
   transition: var(--transition-all);
 }
 
-.history-pagination button:hover:not(:disabled) {
-  background: var(--color-bg-input);
-  border-color: var(--color-border-hover);
+.show-more-btn:hover {
+  color: var(--color-foreground);
+  border-color: var(--color-foreground);
 }
 
-.history-pagination button.active {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
-  color: var(--color-text-inverse);
-}
-
-.history-pagination button:disabled {
-  opacity: var(--opacity-disabled);
-  cursor: not-allowed;
-}
-
-.page-info {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
+.show-more-plus {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-light);
 }
 
 /* Mobile Responsive */

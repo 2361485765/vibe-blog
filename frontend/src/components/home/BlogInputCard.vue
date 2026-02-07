@@ -35,6 +35,16 @@
         placeholder="输入技术主题，如：LangGraph 入门教程、Redis 性能优化、Vue3 最佳实践..."
         @keydown.enter.ctrl="handleGenerate"
       ></textarea>
+      <button
+        class="code-generate-btn"
+        :disabled="isLoading || !localTopic.trim()"
+        @click="handleGenerate"
+        :title="isLoading ? '生成中...' : '生成博客'"
+      >
+        <span v-if="isLoading" class="loading-spinner"></span>
+        <Rocket v-else :size="16" />
+        <span class="btn-text">{{ isLoading ? '生成中' : 'execute' }}</span>
+      </button>
     </div>
 
     <!-- 已上传文档列表 -->
@@ -93,19 +103,7 @@
           <span>高级选项</span>
         </button>
       </div>
-      <div class="code-input-actions-right">
-        <span class="code-input-hint hide-mobile">Ctrl + Enter</span>
-        <button
-          class="code-generate-btn"
-          :disabled="isLoading || !localTopic.trim()"
-          @click="handleGenerate"
-          :title="isLoading ? '生成中...' : '生成博客'"
-        >
-          <span v-if="isLoading" class="loading-spinner"></span>
-          <Rocket v-else :size="16" />
-          <span class="btn-text">{{ isLoading ? '生成中' : 'execute' }}</span>
-        </button>
-      </div>
+      <div class="code-input-actions-right"></div>
     </div>
   </div>
 </template>
@@ -323,6 +321,7 @@ const isSpinningStatus = (status: string) => {
 .code-input-body {
   position: relative;
   display: flex;
+  align-items: center;
   gap: var(--space-sm);
   padding: var(--space-lg);
   z-index: 1;
@@ -330,9 +329,8 @@ const isSpinningStatus = (status: string) => {
 
 .code-input-prompt {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--space-sm);
-  padding-top: 2px;
   flex-shrink: 0;
 }
 
@@ -450,7 +448,7 @@ const isSpinningStatus = (status: string) => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-md) var(--space-lg);
+  padding: var(--space-xs) var(--space-lg);
   background: var(--color-muted);
   border-top: 1px solid var(--color-border);
   z-index: 1;
@@ -523,6 +521,8 @@ const isSpinningStatus = (status: string) => {
 .code-generate-btn {
   display: flex;
   align-items: center;
+  flex-shrink: 0;
+  white-space: nowrap;
   gap: var(--space-sm);
   padding: var(--space-sm) var(--space-lg);
   background: var(--color-primary-gradient);

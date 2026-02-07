@@ -1,14 +1,13 @@
 <template>
-  <section class="text-center pt-64 pb-16 sm:pt-72 sm:pb-20 lg:pt-80 lg:pb-24 px-4 animate-fade-up">
+  <section class="text-center pt-8 pb-4 sm:pt-10 sm:pb-6 lg:pt-12 lg:pb-8 px-4 animate-fade-up">
     <!-- 主标题 -->
     <h1 class="text-4xl sm:text-5xl lg:text-6xl font-bold text-foreground mb-6 font-mono leading-tight">
       <span class="text-primary">&gt;</span> Create Amazing Blogs
-      <span class="inline-block w-0.5 h-[1.2em] bg-primary ml-1 animate-blink align-middle"></span>
+      <span class="inline-block w-1.5 h-[1.2em] bg-primary ml-1 animate-blink align-middle"></span>
     </h1>
-
     <!-- 副标题 -->
     <p class="text-base sm:text-lg text-muted-foreground font-mono mb-4 max-w-2xl mx-auto">
-      $ echo "AI-powered blog generation with terminal aesthetics"
+      $ echo "一句话创作可发布的技术博客"
     </p>
 
     <!-- 统计信息 -->

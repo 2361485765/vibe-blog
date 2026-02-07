@@ -5,12 +5,14 @@
     <!-- 导航栏 -->
     <AppNavbar :app-config="appConfig" />
 
-    <!-- Hero 区域 -->
-    <HeroSection />
+    <!-- 首屏：Hero + 输入框，占满视口 -->
+    <div class="first-screen">
+      <!-- Hero 区域 -->
+      <HeroSection />
 
-    <!-- 主内容区 - 统一容器宽度 -->
-    <div class="main-content-wrapper">
-      <div class="content-container">
+      <!-- 主内容区 - 统一容器宽度 -->
+      <div class="main-content-wrapper">
+        <div class="content-container">
         <!-- 主输入框 - 终端风格搜索栏 -->
         <BlogInputCard
           v-model:topic="topic"
@@ -22,20 +24,33 @@
           @remove-document="removeDocument"
         />
 
-        <!-- 高级选项面板 -->
-        <AdvancedOptionsPanel
-          v-if="showAdvancedOptions"
-          v-model:article-type="articleType"
-          v-model:target-length="targetLength"
-          v-model:audience-adaptation="audienceAdaptation"
-          v-model:image-style="imageStyle"
-          v-model:generate-cover-video="generateCoverVideo"
-          v-model:video-aspect-ratio="videoAspectRatio"
-          v-model:custom-config="customConfig"
-          :image-styles="imageStyles"
-          :app-config="appConfig"
-        />
+        <!-- 高级选项面板 - 绝对定位浮层，不影响下方布局 -->
+        <div class="advanced-options-anchor">
+          <Transition name="slide-down">
+            <AdvancedOptionsPanel
+              v-if="showAdvancedOptions"
+              v-model:article-type="articleType"
+              v-model:target-length="targetLength"
+              v-model:audience-adaptation="audienceAdaptation"
+              v-model:image-style="imageStyle"
+              v-model:generate-cover-video="generateCoverVideo"
+              v-model:video-aspect-ratio="videoAspectRatio"
+              v-model:custom-config="customConfig"
+              :image-styles="imageStyles"
+              :app-config="appConfig"
+            />
+          </Transition>
+        </div>
 
+        </div>
+      </div>
+
+      <!-- 下滑提示 -->
+      <div class="scroll-hint">
+        <span class="scroll-hint-text">scroll</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="scroll-hint-arrow">
+          <path d="M12 5v14M5 12l7 7 7-7"/>
+        </svg>
       </div>
     </div>
 
@@ -67,8 +82,8 @@
       @publish="doPublish"
     />
 
-    <!-- 历史记录区域 - 独立区块，使用相同容器宽度 -->
-    <div class="history-section">
+    <!-- 历史记录区域 - 滚动到视口时淡入 -->
+    <div ref="historySectionRef" class="history-section" :class="{ 'history-visible': historyVisible }">
       <div class="content-container">
         <!-- 博客历史列表 -->
         <BlogHistoryList
@@ -81,11 +96,12 @@
           :current-page="historyCurrentPage"
           :total-pages="historyTotalPages"
           :content-type-filters="contentTypeFilters"
+          :animated="historyVisible"
           @toggle-list="showBlogList = !showBlogList"
           @switch-tab="switchHistoryTab"
           @filter-content-type="filterByContentType"
           @load-detail="loadHistoryDetail"
-          @load-page="loadHistory"
+          @load-more="loadMoreHistory"
         />
       </div>
     </div>
@@ -96,7 +112,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useThemeStore } from '../stores/theme'
 import * as api from '../services/api'
@@ -122,6 +138,9 @@ const isDarkMode = computed(() => themeStore.isDark)
 // ========== 输入状态 ==========
 const topic = ref('')
 const showAdvancedOptions = ref(false)
+const historyVisible = ref(false)
+const historySectionRef = ref<HTMLElement | null>(null)
+let historyObserver: IntersectionObserver | null = null
 
 // ========== 高级选项 ==========
 const articleType = ref('tutorial')
@@ -497,13 +516,23 @@ const loadHistory = async (page: number = 1) => {
     })
 
     if (data.success) {
-      historyRecords.value = data.records
+      if (page === 1) {
+        historyRecords.value = data.records
+      } else {
+        historyRecords.value = [...historyRecords.value, ...data.records]
+      }
       historyTotal.value = data.total
       historyCurrentPage.value = data.page
       historyTotalPages.value = data.total_pages
     }
   } catch (error) {
     console.error('Load history error:', error)
+  }
+}
+
+const loadMoreHistory = () => {
+  if (historyCurrentPage.value < historyTotalPages.value) {
+    loadHistory(historyCurrentPage.value + 1)
   }
 }
 
@@ -582,6 +611,21 @@ onMounted(async () => {
 
   // Load history
   loadHistory(1)
+
+  // 监听滚动，检测 history 区域是否进入视口
+  const checkHistoryVisible = () => {
+    if (historyVisible.value || !historySectionRef.value) return
+    const rect = historySectionRef.value.getBoundingClientRect()
+    // 元素顶部进入视口下方 200px 内就触发
+    if (rect.top < window.innerHeight + 200) {
+      historyVisible.value = true
+      window.removeEventListener('scroll', checkHistoryVisible)
+    }
+  }
+  window.addEventListener('scroll', checkHistoryVisible, { passive: true })
+})
+
+onUnmounted(() => {
 })
 </script>
 
@@ -627,6 +671,42 @@ onMounted(async () => {
   }
 }
 
+/* 首屏占满视口（减去导航栏高度） */
+.first-screen {
+  position: relative;
+  min-height: calc(100vh - 60px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+/* 下滑提示 */
+.scroll-hint {
+  position: absolute;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  opacity: 0.5;
+  animation: scroll-bounce 2s ease-in-out infinite;
+}
+
+.scroll-hint-arrow {
+  opacity: 0.6;
+}
+
+@keyframes scroll-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(6px); }
+}
+
 /* 统一容器宽度 - 所有内容使用相同宽度 */
 .main-content-wrapper {
   position: relative;
@@ -635,18 +715,68 @@ onMounted(async () => {
 }
 
 .content-container {
+  position: relative;
   max-width: 1200px;
   margin: 0 auto;
   padding: 2rem 1.5rem;
 }
 
-/* 历史记录区域 - 使用相同容器 */
+.advanced-options-anchor {
+  position: relative;
+}
+
+.advanced-options-anchor > * {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+}
+
+/* 高级选项展开/收起动画 */
+.slide-down-enter-active,
+.slide-down-leave-active {
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.slide-down-enter-from,
+.slide-down-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+/* 历史记录区域 - 终端风格转场效果 */
 .history-section {
   position: relative;
   z-index: 1;
-  margin-top: 4rem;
-  padding: 4rem 0;
+  margin-top: 0;
+  padding: 1.5rem 0;
   background: linear-gradient(to bottom, transparent, var(--color-muted) 50%, transparent);
+  opacity: 0;
+  transform: translateY(40px);
+}
+
+/* 激活状态 - 淡入上滑 */
+.history-section.history-visible {
+  animation: terminal-boot 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes terminal-boot {
+  0% {
+    opacity: 0;
+    transform: translateY(40px);
+  }
+  30% {
+    opacity: 0.6;
+    transform: translateY(20px);
+  }
+  60% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* Dark Mode */
@@ -665,8 +795,8 @@ onMounted(async () => {
   }
 
   .history-section {
-    margin-top: 3rem;
-    padding: 3rem 0;
+    margin-top: 0;
+    padding: 1rem 0;
   }
 }
 
@@ -685,8 +815,8 @@ onMounted(async () => {
   }
 
   .history-section {
-    margin-top: 5rem;
-    padding: 5rem 0;
+    margin-top: 0;
+    padding: 2rem 0;
   }
 }
 
