@@ -290,21 +290,107 @@ class TestTaskAPI:
         data = response.get_json()
         assert data['success'] is False
 
-    @pytest.mark.skip(reason="SSE streaming test requires special handling")
-    def test_task_stream_endpoint(self, client):
-        """测试 SSE 流式端点（需要特殊处理）"""
-        # SSE 测试需要特殊的客户端配置
-        # 这里标记为 skip，实际测试需要使用 requests 或其他支持 SSE 的库
-        pass
+    def test_task_stream_endpoint(self, client, mock_task_manager):
+        """测试 SSE 流式端点"""
+        from queue import Queue
+        import json
+
+        # Mock task queue with test events
+        test_queue = Queue()
+        test_queue.put({
+            'event': 'progress',
+            'data': {'stage': 'start', 'progress': 0, 'message': '开始生成'}
+        })
+        test_queue.put({
+            'event': 'progress',
+            'data': {'stage': 'outline', 'progress': 20, 'message': '生成大纲'}
+        })
+        test_queue.put({
+            'event': 'complete',
+            'data': {'success': True, 'markdown': '# Test'}
+        })
+
+        mock_task_manager.get_queue.return_value = test_queue
+
+        # 发送 SSE 请求
+        response = client.get('/api/tasks/test-task-id/stream')
+
+        # 验证响应
+        assert response.status_code == 200
+        assert response.content_type == 'text/event-stream; charset=utf-8'
+
+        # 读取流式数据
+        data = response.get_data(as_text=True)
+
+        # 验证包含连接事件
+        assert 'event: connected' in data
+        assert 'test-task-id' in data
+
+        # 验证包含进度事件
+        assert 'event: progress' in data
+        assert '开始生成' in data or '生成大纲' in data
+
+        mock_task_manager.get_queue.assert_called_once_with('test-task-id')
+
+    def test_task_stream_endpoint_task_not_found(self, client, mock_task_manager):
+        """测试 SSE 流式端点 - 任务不存在"""
+        import json
+
+        # Mock 返回 None 表示任务不存在
+        mock_task_manager.get_queue.return_value = None
+
+        response = client.get('/api/tasks/nonexistent-task/stream')
+
+        assert response.status_code == 200
+        data = response.get_data(as_text=True)
+
+        # 验证包含错误事件
+        assert 'event: error' in data
+        # 验证包含错误消息（可能是 Unicode 编码或原始中文）
+        assert ('任务不存在' in data or '\\u4efb\\u52a1\\u4e0d\\u5b58\\u5728' in data)
 
 
 class TestDocumentUploadAPI:
     """测试文档上传 API"""
 
-    @pytest.mark.skip(reason="File upload requires complex mocking")
     def test_upload_document_success(self, client, mock_file_parser):
-        """测试上传文档成功（需要复杂的 mock 配置）"""
-        pass
+        """测试上传文档成功"""
+        from io import BytesIO
+        import uuid
+
+        # Mock file parser service
+        mock_file_parser.parse_document_async.return_value = None
+
+        # Mock database service to return document
+        with client.application.app_context():
+            from app import get_db_service
+            mock_db = get_db_service()
+
+            # Mock create_document to return a document ID
+            test_doc_id = f"doc_{uuid.uuid4().hex[:8]}"
+            mock_db.create_document.return_value = test_doc_id
+
+        # 创建测试文件
+        data = {
+            'file': (BytesIO(b'# Test Document\n\nThis is a test.'), 'test.md')
+        }
+
+        response = client.post(
+            '/api/blog/upload',
+            data=data,
+            content_type='multipart/form-data'
+        )
+
+        # 验证响应
+        assert response.status_code == 200
+        result = response.get_json()
+        assert result['success'] is True
+        assert 'document_id' in result
+        assert result['filename'] == 'test.md'
+        assert result['status'] == 'pending'
+
+        # 验证数据库调用
+        mock_db.create_document.assert_called_once()
 
     def test_upload_document_no_file(self, client):
         """测试没有上传文件"""
@@ -333,12 +419,105 @@ class TestDocumentUploadAPI:
         assert data['success'] is False
         assert '不支持' in data['error']
 
-    @pytest.mark.skip(reason="Document status API returns mock object directly")
     def test_get_document_status(self, client, mock_file_parser):
-        """测试获取文档状态（需要更复杂的 mock 配置）"""
-        pass
+        """测试获取文档状态"""
+        with client.application.app_context():
+            from app import get_db_service
+            mock_db = get_db_service()
 
-    @pytest.mark.skip(reason="Delete document requires file system mocking")
+            # Mock document data
+            mock_db.get_document.return_value = {
+                'id': 'doc_test123',
+                'filename': 'test.pdf',
+                'status': 'completed',
+                'summary': 'Test document summary',
+                'markdown_length': 1500,
+                'created_at': '2024-01-01T00:00:00',
+                'parsed_at': '2024-01-01T00:01:00'
+            }
+            mock_db.get_chunks_by_document.return_value = [
+                {'id': 'chunk1', 'content': 'chunk 1'},
+                {'id': 'chunk2', 'content': 'chunk 2'}
+            ]
+            mock_db.get_images_by_document.return_value = [
+                {'id': 'img1', 'url': 'http://example.com/img1.jpg'}
+            ]
+
+        response = client.get('/api/blog/upload/doc_test123/status')
+
+        assert response.status_code == 200
+        result = response.get_json()
+        assert result['success'] is True
+        assert result['document_id'] == 'doc_test123'
+        assert result['filename'] == 'test.pdf'
+        assert result['status'] == 'completed'
+        assert result['chunks_count'] == 2
+        assert result['images_count'] == 1
+
+    def test_get_document_status_not_found(self, client, mock_file_parser):
+        """测试获取不存在的文档状态"""
+        with client.application.app_context():
+            from app import get_db_service
+            mock_db = get_db_service()
+            mock_db.get_document.return_value = None
+
+        response = client.get('/api/blog/upload/nonexistent/status')
+
+        assert response.status_code == 404
+        result = response.get_json()
+        assert result['success'] is False
+        assert '不存在' in result['error']
+
     def test_delete_document(self, client, mock_file_parser):
-        """测试删除文档（需要文件系统 mock）"""
-        pass
+        """测试删除文档"""
+        import os
+        import tempfile
+
+        with client.application.app_context():
+            from app import get_db_service
+            mock_db = get_db_service()
+
+            # 创建临时文件
+            with tempfile.NamedTemporaryFile(delete=False) as tmp:
+                tmp.write(b'test content')
+                tmp_path = tmp.name
+
+            try:
+                # Mock document with file path
+                mock_db.get_document.return_value = {
+                    'id': 'doc_test123',
+                    'filename': 'test.pdf',
+                    'file_path': tmp_path
+                }
+                mock_db.delete_document.return_value = True
+
+                response = client.delete('/api/blog/upload/doc_test123')
+
+                assert response.status_code == 200
+                result = response.get_json()
+                assert result['success'] is True
+                assert '已删除' in result['message']
+
+                # 验证数据库调用
+                mock_db.delete_document.assert_called_once_with('doc_test123')
+
+                # 验证文件被删除
+                assert not os.path.exists(tmp_path)
+            finally:
+                # 清理：如果文件仍然存在，删除它
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+
+    def test_delete_document_not_found(self, client, mock_file_parser):
+        """测试删除不存在的文档"""
+        with client.application.app_context():
+            from app import get_db_service
+            mock_db = get_db_service()
+            mock_db.get_document.return_value = None
+
+        response = client.delete('/api/blog/upload/nonexistent')
+
+        assert response.status_code == 404
+        result = response.get_json()
+        assert result['success'] is False
+        assert '不存在' in result['error']
