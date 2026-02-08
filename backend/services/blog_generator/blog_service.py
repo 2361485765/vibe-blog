@@ -377,6 +377,9 @@ class BlogService:
                                     'title': outline.get('title', ''),
                                     'sections_count': len(sections),
                                     'sections': [s.get('title', '') for s in sections],
+                                    'narrative_mode': outline.get('narrative_mode', ''),
+                                    'narrative_flow': outline.get('narrative_flow', {}),
+                                    'sections_narrative_roles': [s.get('narrative_role', '') for s in sections],
                                     'message': f'大纲生成完成: {outline.get("title", "")} ({len(sections)} 章节)'
                                 }
                             })
