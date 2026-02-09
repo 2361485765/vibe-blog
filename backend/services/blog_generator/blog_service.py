@@ -376,7 +376,8 @@ class BlogService:
                                 'data': {
                                     'title': outline.get('title', ''),
                                     'sections_count': len(sections),
-                                    'sections': [s.get('title', '') for s in sections],
+                                    'sections': sections,  # 发送完整的 sections 对象数组（包括 target_words）
+                                    'sections_titles': [s.get('title', '') for s in sections],  # 保留标题列表用于兼容性
                                     'narrative_mode': outline.get('narrative_mode', ''),
                                     'narrative_flow': outline.get('narrative_flow', {}),
                                     'sections_narrative_roles': [s.get('narrative_role', '') for s in sections],

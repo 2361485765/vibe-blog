@@ -262,6 +262,11 @@ def run_api_e2e(case: dict, case_idx: int) -> dict:
 
                     if event_type == 'outline_complete':
                         outline_data = data.get('data', {})
+                        # 调试：打印原始数据结构
+                        logger.info(f"  🔍 DEBUG: outline_data keys: {list(outline_data.keys())}")
+                        logger.info(f"  🔍 DEBUG: sections type: {type(outline_data.get('sections'))}")
+                        if outline_data.get('sections'):
+                            logger.info(f"  🔍 DEBUG: first section type: {type(outline_data['sections'][0])}")
                         logger.info(f"  🎉 收到 outline_complete 事件")
                         logger.info(f"     标题: {outline_data.get('title', '')}")
                         logger.info(f"     章节数: {len(outline_data.get('sections', []))}")
