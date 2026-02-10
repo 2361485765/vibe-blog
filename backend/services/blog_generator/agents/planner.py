@@ -40,7 +40,13 @@ class PlannerAgent:
         target_code_blocks_count: int = None,
         target_word_count: int = None,
         instructional_analysis: dict = None,
-        verbatim_data: list = None
+        verbatim_data: list = None,
+        distilled_sources: list = None,
+        content_gaps: list = None,
+        writing_recommendations: dict = None,
+        material_by_type: dict = None,
+        common_themes: list = None,
+        contradictions: list = None
     ) -> Dict[str, Any]:
         """
         生成文章大纲
@@ -81,7 +87,13 @@ class PlannerAgent:
             target_code_blocks_count=target_code_blocks_count,
             target_word_count=target_word_count,
             instructional_analysis=instructional_analysis,
-            verbatim_data=verbatim_data
+            verbatim_data=verbatim_data,
+            distilled_sources=distilled_sources or [],
+            content_gaps=content_gaps or [],
+            writing_recommendations=writing_recommendations or {},
+            material_by_type=material_by_type or {},
+            common_themes=common_themes or [],
+            contradictions=contradictions or []
         )
         
         try:
@@ -125,10 +137,12 @@ class PlannerAgent:
                 if field not in outline:
                     raise ValueError(f"大纲缺少必要字段: {field}")
             
-            # 为每个章节添加 ID (如果没有)
+            # 为每个章节添加 ID (如果没有) 和新字段默认值
             for i, section in enumerate(outline.get('sections', [])):
                 if 'id' not in section:
                     section['id'] = f"section_{i + 1}"
+                section.setdefault('core_question', '')
+                section.setdefault('assigned_materials', [])
             
             return outline
             
@@ -167,7 +181,13 @@ class PlannerAgent:
                 target_code_blocks_count=state.get('target_code_blocks_count'),
                 target_word_count=state.get('target_word_count'),
                 instructional_analysis=state.get('instructional_analysis'),
-                verbatim_data=state.get('verbatim_data', [])
+                verbatim_data=state.get('verbatim_data', []),
+                distilled_sources=state.get('distilled_sources', []),
+                content_gaps=state.get('content_gaps', []),
+                writing_recommendations=state.get('writing_recommendations', {}),
+                material_by_type=state.get('material_by_type', {}),
+                common_themes=state.get('common_themes', []),
+                contradictions=state.get('contradictions', [])
             )
             
             state['outline'] = outline
