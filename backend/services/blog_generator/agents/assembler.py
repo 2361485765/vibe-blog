@@ -43,10 +43,10 @@ class AssemblerAgent:
     def extract_subheadings(self, content: str) -> List[str]:
         """
         从章节内容中提取二级标题（### 标题）
-        
+
         Args:
             content: 章节内容
-            
+
         Returns:
             二级标题列表
         """
@@ -54,6 +54,33 @@ class AssemblerAgent:
         pattern = r'^###\s+(.+?)$'
         matches = re.findall(pattern, content, re.MULTILINE)
         return matches[:3]  # 最多返回 3 个二级标题
+
+    def replace_source_references(self, content: str, search_results: List[Dict]) -> str:
+        """
+        Replace {source_NNN} placeholders with actual source links.
+
+        Args:
+            content: Markdown content with {source_NNN} placeholders
+            search_results: List of search results (1-indexed in placeholders)
+
+        Returns:
+            Content with placeholders replaced by markdown links
+        """
+        if not search_results:
+            return content
+
+        def replace_match(match):
+            idx = int(match.group(1))
+            if 0 < idx <= len(search_results):
+                source = search_results[idx - 1]
+                title = source.get('title', '来源')
+                url = source.get('source', source.get('url', ''))
+                if url:
+                    return f"（[{title}]({url})）"
+                return f"（{title}）"
+            return match.group(0)  # Keep original if index out of range
+
+        return re.sub(r'\{source_(\d{1,3})\}', replace_match, content)
     
     def assemble(
         self,
@@ -61,7 +88,8 @@ class AssemblerAgent:
         sections: List[Dict[str, Any]],
         code_blocks: List[Dict[str, Any]],
         images: List[Dict[str, Any]],
-        document_references: List[Dict[str, Any]] = None
+        document_references: List[Dict[str, Any]] = None,
+        search_results: List[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         组装最终文档
@@ -110,7 +138,11 @@ class AssemblerAgent:
             
             # 替换占位符，传入章节的 image_ids 用于精确匹配
             content = replace_placeholders(content, code_blocks, images, image_ids=section_image_ids)
-            
+
+            # 替换 {source_NNN} 为实际来源链接
+            if search_results:
+                content = self.replace_source_references(content, search_results)
+
             body_parts.append(content)
         
         body = '\n\n---\n\n'.join(body_parts)
@@ -169,15 +201,17 @@ class AssemblerAgent:
         code_blocks = state.get('code_blocks', [])
         images = state.get('images', [])
         document_references = state.get('document_references', [])
-        
+        search_results = state.get('search_results', [])
+
         logger.info("开始组装文档")
-        
+
         result = self.assemble(
             outline=outline,
             sections=sections,
             code_blocks=code_blocks,
             images=images,
-            document_references=document_references
+            document_references=document_references,
+            search_results=search_results
         )
         
         state['final_markdown'] = result.get('markdown', '')

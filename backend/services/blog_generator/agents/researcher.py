@@ -337,17 +337,175 @@ class ResearcherAgent:
                 ]
             }
     
+    def distill(self, topic: str, search_results: List[Dict]) -> Dict[str, Any]:
+        """
+        深度提炼搜索结果（类 OpenDraft Scribe）
+
+        Args:
+            topic: 技术主题
+            search_results: 原始搜索结果
+
+        Returns:
+            提炼后的结构化素材
+        """
+        empty_result = {
+            "sources": [],
+            "common_themes": [],
+            "contradictions": [],
+            "material_by_type": {"concepts": [], "cases": [], "data": [], "comparisons": []}
+        }
+        if not search_results:
+            return empty_result
+
+        # 尝试从缓存获取
+        if self.cache:
+            result_urls = [r.get('url', '') for r in search_results[:15]]
+            cached_result = self.cache.get(
+                'distill',
+                topic=topic,
+                result_urls=result_urls
+            )
+            if cached_result is not None:
+                return cached_result
+
+        pm = get_prompt_manager()
+        prompt = pm.render_distill_sources(
+            topic=topic,
+            search_results=search_results[:15]
+        )
+
+        try:
+            response = self.llm.chat(
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"}
+            )
+
+            # 提取 JSON
+            json_str = response.strip()
+            if '```json' in json_str:
+                json_str = json_str.split('```json')[1].split('```')[0].strip()
+            elif '```' in json_str:
+                json_str = json_str.split('```')[1].split('```')[0].strip()
+
+            result = json.loads(json_str)
+
+            # 确保必要字段存在
+            result.setdefault('sources', [])
+            result.setdefault('common_themes', [])
+            result.setdefault('contradictions', [])
+            result.setdefault('material_by_type',
+                              {"concepts": [], "cases": [], "data": [], "comparisons": []})
+
+            logger.info(f"🔬 深度提炼完成: {len(result['sources'])} 条素材, "
+                        f"{len(result['common_themes'])} 个共同主题, "
+                        f"{len(result['contradictions'])} 个矛盾点")
+
+            # 保存到缓存
+            if self.cache:
+                result_urls = [r.get('url', '') for r in search_results[:15]]
+                self.cache.set(
+                    'distill',
+                    result,
+                    topic=topic,
+                    result_urls=result_urls
+                )
+
+            return result
+
+        except Exception as e:
+            logger.error(f"深度提炼失败: {e}")
+            return empty_result
+
+    def analyze_gaps(self, topic: str, article_type: str, distilled: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        缺口分析（类 OpenDraft Signal）
+
+        Args:
+            topic: 技术主题
+            article_type: 文章类型
+            distilled: distill() 的输出
+
+        Returns:
+            缺口分析结果
+        """
+        empty_result = {
+            "content_gaps": [],
+            "unique_angles": [],
+            "writing_recommendations": {}
+        }
+        if not distilled or not distilled.get('sources'):
+            return empty_result
+
+        # 尝试从缓存获取
+        if self.cache:
+            cached_result = self.cache.get(
+                'analyze_gaps',
+                topic=topic,
+                article_type=article_type,
+                themes_count=len(distilled.get('common_themes', []))
+            )
+            if cached_result is not None:
+                return cached_result
+
+        pm = get_prompt_manager()
+        prompt = pm.render_analyze_gaps(
+            topic=topic,
+            article_type=article_type,
+            common_themes=distilled.get('common_themes', []),
+            material_by_type=distilled.get('material_by_type', {}),
+            contradictions=distilled.get('contradictions', [])
+        )
+
+        try:
+            response = self.llm.chat(
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"}
+            )
+
+            # 提取 JSON
+            json_str = response.strip()
+            if '```json' in json_str:
+                json_str = json_str.split('```json')[1].split('```')[0].strip()
+            elif '```' in json_str:
+                json_str = json_str.split('```')[1].split('```')[0].strip()
+
+            result = json.loads(json_str)
+
+            # 确保必要字段存在
+            result.setdefault('content_gaps', [])
+            result.setdefault('unique_angles', [])
+            result.setdefault('writing_recommendations', {})
+
+            logger.info(f"🔍 缺口分析完成: {len(result['content_gaps'])} 个缺口, "
+                        f"{len(result['unique_angles'])} 个独特角度")
+
+            # 保存到缓存
+            if self.cache:
+                self.cache.set(
+                    'analyze_gaps',
+                    result,
+                    topic=topic,
+                    article_type=article_type,
+                    themes_count=len(distilled.get('common_themes', []))
+                )
+
+            return result
+
+        except Exception as e:
+            logger.error(f"缺口分析失败: {e}")
+            return empty_result
+
     def run(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """
         执行素材收集
-        
+
         支持两种模式：
         1. 无文档上传 → 原有流程（仅网络搜索）
         2. 有文档上传 → 知识融合流程（文档 + 网络搜索）
-        
+
         Args:
             state: 共享状态
-            
+
         Returns:
             更新后的状态
         """
@@ -445,7 +603,26 @@ class ResearcherAgent:
         state['instructional_analysis'] = instructional_analysis
         state['learning_objectives'] = instructional_analysis.get('learning_objectives', [])
         state['verbatim_data'] = instructional_analysis.get('verbatim_data', [])
-        
+
+        # 5. 深度提炼 + 缺口分析（52号方案）
+        distilled = {}
+        gap_analysis = {}
+        if search_results:
+            logger.info("🔬 开始深度提炼搜索结果...")
+            distilled = self.distill(topic, search_results)
+
+            logger.info("🔍 开始缺口分析...")
+            article_type = state.get('article_type', 'tutorial')
+            gap_analysis = self.analyze_gaps(topic, article_type, distilled)
+
+        state['distilled_sources'] = distilled.get('sources', [])
+        state['material_by_type'] = distilled.get('material_by_type', {})
+        state['common_themes'] = distilled.get('common_themes', [])
+        state['contradictions'] = distilled.get('contradictions', [])
+        state['content_gaps'] = gap_analysis.get('content_gaps', [])
+        state['unique_angles'] = gap_analysis.get('unique_angles', [])
+        state['writing_recommendations'] = gap_analysis.get('writing_recommendations', {})
+
         stats = state['knowledge_source_stats']
         logger.info(f"✅ 素材收集完成: 文档知识 {stats['document_count']} 条, "
                     f"网络搜索 {stats['web_count']} 条, 核心概念 {len(state['key_concepts'])} 个")
@@ -464,6 +641,9 @@ class ResearcherAgent:
             'learning_objectives': state.get('learning_objectives', []),
             'verbatim_data': state.get('verbatim_data', []),
             'knowledge_source_stats': state.get('knowledge_source_stats', {}),
+            'distilled_sources': state.get('distilled_sources', []),
+            'content_gaps': state.get('content_gaps', []),
+            'writing_recommendations': state.get('writing_recommendations', {}),
         }
         logger.info(f"__RESEARCHER_OUTPUT_JSON__{json.dumps(researcher_output, ensure_ascii=False)}__END_JSON__")
         

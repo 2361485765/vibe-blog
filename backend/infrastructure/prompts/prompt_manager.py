@@ -137,6 +137,36 @@ class PromptManager:
             target_audience=target_audience
         )
 
+    def render_distill_sources(
+        self,
+        topic: str,
+        search_results: list = None
+    ) -> str:
+        """渲染搜索结果深度提炼 Prompt"""
+        return self.render(
+            'blog/distill_sources',
+            topic=topic,
+            search_results=search_results or []
+        )
+
+    def render_analyze_gaps(
+        self,
+        topic: str,
+        article_type: str = "tutorial",
+        common_themes: list = None,
+        material_by_type: dict = None,
+        contradictions: list = None
+    ) -> str:
+        """渲染缺口分析 Prompt"""
+        return self.render(
+            'blog/analyze_gaps',
+            topic=topic,
+            article_type=article_type,
+            common_themes=common_themes or [],
+            material_by_type=material_by_type or {},
+            contradictions=contradictions or []
+        )
+
     def render_planner(
         self,
         topic: str,
@@ -151,7 +181,13 @@ class PromptManager:
         target_code_blocks_count: int = None,
         target_word_count: int = None,
         instructional_analysis: dict = None,
-        verbatim_data: list = None
+        verbatim_data: list = None,
+        distilled_sources: list = None,
+        content_gaps: list = None,
+        writing_recommendations: dict = None,
+        material_by_type: dict = None,
+        common_themes: list = None,
+        contradictions: list = None
     ) -> str:
         """渲染 Planner Prompt"""
         return self.render(
@@ -168,7 +204,13 @@ class PromptManager:
             target_code_blocks_count=target_code_blocks_count,
             target_word_count=target_word_count,
             instructional_analysis=instructional_analysis,
-            verbatim_data=verbatim_data or []
+            verbatim_data=verbatim_data or [],
+            distilled_sources=distilled_sources or [],
+            content_gaps=content_gaps or [],
+            writing_recommendations=writing_recommendations or {},
+            material_by_type=material_by_type or {},
+            common_themes=common_themes or [],
+            contradictions=contradictions or []
         )
 
     def render_writer(
@@ -182,7 +224,8 @@ class PromptManager:
         verbatim_data: list = None,
         learning_objectives: list = None,
         narrative_mode: str = "",
-        narrative_flow: dict = None
+        narrative_flow: dict = None,
+        assigned_materials: list = None
     ) -> str:
         """渲染 Writer Prompt"""
         return self.render(
@@ -196,7 +239,8 @@ class PromptManager:
             verbatim_data=verbatim_data or [],
             learning_objectives=learning_objectives or [],
             narrative_mode=narrative_mode,
-            narrative_flow=narrative_flow or {}
+            narrative_flow=narrative_flow or {},
+            assigned_materials=assigned_materials or []
         )
 
     def render_writer_enhance(

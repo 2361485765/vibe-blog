@@ -23,6 +23,29 @@
 你的整个章节都应该围绕这个问题展开。读者读完后应该能清楚地知道答案。
 {% endif %}
 
+{% if assigned_materials %}
+### 本章节预分配素材
+
+以下素材已由 Planner 分配给本章节，请按指示使用：
+
+{% for mat in assigned_materials %}
+**素材 {{ mat.source_index }}**（{{ mat.use_as }}{% if mat.priority == "must_use" %} — 必须使用{% endif %}）
+{% if mat.core_insight is defined and mat.core_insight %}
+> {{ mat.core_insight[:200] }}
+{% endif %}
+使用指导：{{ mat.instruction }}
+{% if mat.url is defined and mat.url %}
+来源：[{{ mat.title | default('来源') }}]({{ mat.url }})
+{% endif %}
+
+{% endfor %}
+
+**使用要求：**
+- `must_use` 素材必须在本章节中引用，不能忽略
+- 引用时请自然融入行文，不要生硬堆砌
+- 引用数据时标注来源，使用 `{source_NNN}` 占位符（NNN 为素材编号），如：`根据实测数据，效率提升了 40% {source_002}`
+{% endif %}
+
 {% if section_outline.get('target_words') %}
 ### 字数目标
 本章目标字数：**{{ section_outline.get('target_words') }} 字**

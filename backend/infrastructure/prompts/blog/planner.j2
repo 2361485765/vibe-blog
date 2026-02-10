@@ -46,6 +46,70 @@
 {% endfor %}
 {% endif %}
 
+{% if distilled_sources %}
+## 📚 深度素材分析（基于搜索结果提炼）
+
+### 按类型分类的素材
+{% if material_by_type.get('concepts') %}
+**概念解释类**：
+{% for item in material_by_type.concepts %}
+- {{ item }}
+{% endfor %}
+{% endif %}
+
+{% if material_by_type.get('cases') %}
+**实践案例类**：
+{% for item in material_by_type.cases %}
+- {{ item }}
+{% endfor %}
+{% endif %}
+
+{% if material_by_type.get('data') %}
+**数据统计类**（必须原样引用）：
+{% for item in material_by_type.data %}
+- {{ item }}
+{% endfor %}
+{% endif %}
+
+{% if material_by_type.get('comparisons') %}
+**对比分析类**：
+{% for item in material_by_type.comparisons %}
+- {{ item }}
+{% endfor %}
+{% endif %}
+
+### 多源共识
+{% for theme in common_themes %}
+- {{ theme }}
+{% endfor %}
+
+{% if contradictions %}
+### ⚡ 争议点（建议在文章中讨论）
+{% for c in contradictions %}
+- **{{ c.point }}**：{{ c.side_a }} vs {{ c.side_b }}
+{% endfor %}
+{% endif %}
+{% endif %}
+
+{% if content_gaps %}
+## 🔍 内容缺口（搜索结果未覆盖的重要方面）
+{% for gap in content_gaps %}
+- {{ gap }}
+{% endfor %}
+
+**请在大纲中安排章节覆盖这些缺口，这是让文章有深度的关键。**
+{% endif %}
+
+{% if writing_recommendations %}
+## 💡 写作策略建议
+- **推荐结构**：{{ writing_recommendations.get('recommended_structure', '') }}
+- **必须覆盖**：{{ writing_recommendations.get('must_cover', []) | join('、') }}
+{% if writing_recommendations.get('can_skip') %}
+- **可以精简**：{{ writing_recommendations.get('can_skip', []) | join('、') }}（已有大量文章覆盖）
+{% endif %}
+- **差异化**：{{ writing_recommendations.get('differentiation', '') }}
+{% endif %}
+
 ## 受众适配要求
 {% if audience_adaptation == "high-school" %}
 ### 🎓 高中生版本规划要求
@@ -128,6 +192,34 @@
 | summary | 总结/展望 | 最后一章 |
 | catalog_item | 清单条目 | catalog 模式 |
 
+### 第四步：为每个章节设置核心问题（core_question）
+
+每个章节必须有一个 `core_question`，它决定了 Writer 的写作目标。Writer 将围绕这个问题组织论述，而不是逐个展开 content_outline 中的要点。
+
+**core_question 设计规则：**
+1. **具体**，不能是标题的疑问句形式
+   - 不好："什么是 Skill？"（太泛）
+   - 好："Skill 到底是什么？它和普通 Prompt 有什么本质区别？"（具体、有对比）
+2. **可回答**，Writer 能用 content_outline 中的要点来回答
+3. **暗示写作方向**，引导 Writer 用特定角度组织内容
+   - 不好："介绍 LangGraph"（没有方向）
+   - 好："LangGraph 的四个核心概念是怎么协作的？一个请求从进入到输出经历了什么？"
+4. **相邻章节的 core_question 要形成逻辑递进**
+
+**narrative_role → core_question 推荐模板：**
+
+| narrative_role | 推荐的 core_question 模板 |
+|---------------|-------------------------|
+| hook | "读者为什么应该关心这个话题？这和他的日常有什么关系？" |
+| what | "X 到底是什么？它和 Y 有什么本质区别？" |
+| why | "没有 X 会怎样？有了 X 能改善多少？有数据吗？" |
+| how | "具体怎么做？最少需要哪些步骤？读者能跟着做吗？" |
+| compare | "A 和 B 在哪些维度上有差异？什么场景该选哪个？" |
+| deep_dive | "底层到底是怎么工作的？为什么要这样设计而不是那样？" |
+| verify | "怎么证明这个方案有效？有没有测试数据或真实案例？" |
+| summary | "读者读完整篇文章后，应该记住哪 3 个核心要点？" |
+| catalog_item | "这个问题的本质是什么？Naive 方案为什么失败？怎么修复？" |
+
 ## 字数分配规则（第二步）
 
 在设计完叙事流和章节后，需要为每个章节分配目标字数（`target_words`）。
@@ -197,6 +289,44 @@
 请严格按照上述配置生成大纲，确保章节数量和配图数量符合要求。
 {% endif %}
 
+{% if distilled_sources %}
+## 素材预分配
+
+在设计大纲时，请同时将搜索素材分配到具体章节。
+
+### 分配规则
+
+1. 每条素材至少分配到一个章节（不要遗漏）
+2. 每个章节分配 1-3 条素材
+3. 为每条分配的素材指定用途：`data_support`（数据支撑）/ `case_study`（案例引用）/ `concept_explain`（概念解释）/ `comparison`（对比分析）/ `best_practice`（最佳实践）/ `tutorial_step`（教程步骤）
+4. 标记优先级：`must_use`（必须使用）/ `recommended`（推荐）/ `optional`（可选）
+5. 用一句话告诉 Writer 怎么使用这条素材
+
+### 可用素材清单
+
+{% for source in distilled_sources %}
+**素材 {{ loop.index }}**（{{ source.get('content_type', '未分类') }}，可信度: {{ source.get('credibility', 'medium') }}）
+> {{ source.get('core_insight', '') }}
+{% if source.get('key_data') %}
+关键数据：{{ source.key_data | join('；') }}
+{% endif %}
+来源：{{ source.get('title', '未知') }}
+
+{% endfor %}
+
+### 输出格式
+
+在每个 section 中添加 `assigned_materials` 数组：
+```json
+{
+  "source_index": 1,
+  "use_as": "data_support",
+  "priority": "must_use",
+  "instruction": "用这个数据证明 X 的价值"
+}
+```
+{% endif %}
+
 ## 输出要求
 请输出完整的文章大纲，JSON 格式:
 
@@ -225,10 +355,12 @@
       "id": "section_1",
       "title": "章节标题",
       "narrative_role": "本章叙事角色 (hook | what | why | how | compare | deep_dive | verify | summary | catalog_item)",
+      "core_question": "本章核心问题（具体、可回答、暗示写作方向）",
       "target_words": 整数（本章节目标字数，必须 > 200，且所有章节总和等于总目标字数）,
       "key_concept": "本章核心概念",
       "learning_objective": "本章节支撑的学习目标（可选）",
       "content_outline": ["要点1", "要点2", "要点3"],
+      "assigned_materials": [{"source_index": 1, "use_as": "data_support", "priority": "must_use", "instruction": "使用指导"}],
       "verbatim_data_refs": ["需要在本章节使用的关键数据（原样引用）"],
       "image_type": "flowchart | architecture | sequence | comparison | chart | none",
       "illustration_type": "infographic | scene | flowchart | comparison | framework | timeline",

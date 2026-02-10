@@ -180,7 +180,16 @@ class SharedState(TypedDict):
     instructional_analysis: Optional[dict]  # 教学设计分析
     learning_objectives: List[dict]  # 学习目标列表
     verbatim_data: List[dict]  # 需要原样保留的数据
-    
+
+    # 52号方案: 搜索结果提炼与缺口分析 (Researcher 输出)
+    distilled_sources: List[dict]  # 逐条提炼的结构化素材
+    material_by_type: dict  # 按类型分类的素材
+    common_themes: List[str]  # 多源共同主题
+    contradictions: List[dict]  # 矛盾点
+    content_gaps: List[str]  # 内容缺口
+    unique_angles: List[dict]  # 独特角度
+    writing_recommendations: dict  # 写作建议
+
     # 信息架构 (Planner 输出)
     information_architecture: Optional[dict]  # 信息架构设计
     
@@ -293,6 +302,14 @@ def create_initial_state(
         instructional_analysis=None,
         learning_objectives=[],
         verbatim_data=[],
+        # 52号方案: 搜索结果提炼与缺口分析
+        distilled_sources=[],
+        material_by_type={},
+        common_themes=[],
+        contradictions=[],
+        content_gaps=[],
+        unique_angles=[],
+        writing_recommendations={},
         # 信息架构
         information_architecture=None,
         # 多轮搜索相关

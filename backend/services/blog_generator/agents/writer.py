@@ -100,6 +100,20 @@ class WriterAgent:
         Returns:
             章节内容
         """
+        # Enrich assigned_materials with actual source data
+        assigned_materials = []
+        raw_materials = section_outline.get('assigned_materials', [])
+        for mat in raw_materials:
+            source_idx = mat.get('source_index', 0)
+            enriched = dict(mat)
+            # Attach source data if available (1-indexed)
+            if search_results and 0 < source_idx <= len(search_results):
+                source = search_results[source_idx - 1]
+                enriched['title'] = source.get('title', '')
+                enriched['url'] = source.get('source', source.get('url', ''))
+                enriched['core_insight'] = source.get('content', '')[:300]
+            assigned_materials.append(enriched)
+
         pm = get_prompt_manager()
         prompt = pm.render_writer(
             section_outline=section_outline,
@@ -111,7 +125,8 @@ class WriterAgent:
             verbatim_data=verbatim_data or [],
             learning_objectives=learning_objectives or [],
             narrative_mode=narrative_mode,
-            narrative_flow=narrative_flow or {}
+            narrative_flow=narrative_flow or {},
+            assigned_materials=assigned_materials
         )
         
         # 输出完整的 Writer Prompt 到日志（用于诊断）
