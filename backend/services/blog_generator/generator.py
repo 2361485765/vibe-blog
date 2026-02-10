@@ -30,6 +30,7 @@ from .agents.humanizer import HumanizerAgent
 from .agents.thread_checker import ThreadCheckerAgent
 from .agents.voice_checker import VoiceCheckerAgent
 from .agents.factcheck import FactCheckAgent
+from .agents.summary_generator import SummaryGeneratorAgent
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +114,10 @@ class BlogGenerator:
         # TextCleanup（可通过环境变量禁用）
         self._text_cleanup_enabled = os.getenv('TEXT_CLEANUP_ENABLED', 'true').lower() == 'true'
 
+        # SummaryGenerator（可通过环境变量禁用）
+        self._summary_enabled = os.getenv('SUMMARY_GENERATOR_ENABLED', 'true').lower() == 'true'
+        self.summary_generator = SummaryGeneratorAgent(llm_client) if self._summary_enabled else None
+
         # 构建工作流
         self.workflow = self._build_workflow()
         self.app = None
@@ -145,6 +150,7 @@ class BlogGenerator:
         workflow.add_node("text_cleanup", self._text_cleanup_node)
         workflow.add_node("humanizer", self._humanizer_node)
         workflow.add_node("assembler", self._assembler_node)
+        workflow.add_node("summary_generator", self._summary_generator_node)
         
         # 定义边
         workflow.add_edge(START, "researcher")
@@ -196,7 +202,8 @@ class BlogGenerator:
         workflow.add_edge("factcheck", "text_cleanup")  # 事实核查后文本清理
         workflow.add_edge("text_cleanup", "humanizer")  # 文本清理后去 AI 味
         workflow.add_edge("humanizer", "assembler")  # 去 AI 味后组装
-        workflow.add_edge("assembler", END)
+        workflow.add_edge("assembler", "summary_generator")
+        workflow.add_edge("summary_generator", END)
         
         return workflow
     
@@ -798,6 +805,18 @@ class BlogGenerator:
             logger.error(f"[Humanizer] 异常，降级使用原始内容: {e}")
             return state
 
+    def _summary_generator_node(self, state: SharedState) -> SharedState:
+        """博客导读 + SEO 关键词生成节点"""
+        if not self._summary_enabled:
+            logger.info("=== Step 9: 导读+SEO（已禁用，跳过）===")
+            return state
+        logger.info("=== Step 9: 导读 + SEO 关键词生成 ===")
+        try:
+            return self.summary_generator.run(state)
+        except Exception as e:
+            logger.error(f"[SummaryGenerator] 异常，降级跳过: {e}")
+            return state
+
     def _assembler_node(self, state: SharedState) -> SharedState:
         """文档组装节点"""
         logger.info("=== Step 8: 文档组装 ===")
@@ -929,6 +948,9 @@ class BlogGenerator:
                 "images_count": len(final_state.get('images', [])),
                 "code_blocks_count": len(final_state.get('code_blocks', [])),
                 "review_score": final_state.get('review_score', 0),
+                "seo_keywords": final_state.get('seo_keywords', []),
+                "social_summary": final_state.get('social_summary', ''),
+                "meta_description": final_state.get('meta_description', ''),
                 "error": None
             }
             

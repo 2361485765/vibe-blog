@@ -614,6 +614,20 @@ class PromptManager:
             all_evidence=all_evidence,
         )
 
+    def render_summary_generator(
+        self,
+        title: str,
+        full_article: str,
+        learning_objectives: list = None,
+    ) -> str:
+        """渲染 SummaryGenerator 博客导读+SEO Prompt"""
+        return self.render(
+            'blog/summary_generator',
+            title=title,
+            full_article=full_article,
+            learning_objectives=learning_objectives or [],
+        )
+
     # ========== 小红书相关 Prompt ==========
 
     def render_xhs_outline(
