@@ -110,6 +110,9 @@ class BlogGenerator:
         self._factcheck_enabled = os.getenv('FACTCHECK_ENABLED', 'true').lower() == 'true'
         self.factcheck = FactCheckAgent(llm_client) if self._factcheck_enabled else None
 
+        # TextCleanup（可通过环境变量禁用）
+        self._text_cleanup_enabled = os.getenv('TEXT_CLEANUP_ENABLED', 'true').lower() == 'true'
+
         # 构建工作流
         self.workflow = self._build_workflow()
         self.app = None
@@ -139,6 +142,7 @@ class BlogGenerator:
         workflow.add_node("reviewer", self._reviewer_node)
         workflow.add_node("revision", self._revision_node)
         workflow.add_node("factcheck", self._factcheck_node)
+        workflow.add_node("text_cleanup", self._text_cleanup_node)
         workflow.add_node("humanizer", self._humanizer_node)
         workflow.add_node("assembler", self._assembler_node)
         
@@ -189,7 +193,8 @@ class BlogGenerator:
             }
         )
         workflow.add_edge("revision", "reviewer")  # 修订后重新审核
-        workflow.add_edge("factcheck", "humanizer")  # 事实核查后去 AI 味
+        workflow.add_edge("factcheck", "text_cleanup")  # 事实核查后文本清理
+        workflow.add_edge("text_cleanup", "humanizer")  # 文本清理后去 AI 味
         workflow.add_edge("humanizer", "assembler")  # 去 AI 味后组装
         workflow.add_edge("assembler", END)
         
@@ -759,6 +764,27 @@ class BlogGenerator:
         except Exception as e:
             logger.error(f"[FactCheck] 异常，降级跳过: {e}")
             return state
+
+    def _text_cleanup_node(self, state: SharedState) -> SharedState:
+        """确定性文本清理节点（纯正则，零 LLM）"""
+        if not self._text_cleanup_enabled:
+            logger.info("=== Step 7.4: 文本清理（已禁用，跳过）===")
+            return state
+        logger.info("=== Step 7.4: 确定性文本清理 ===")
+        from utils.text_cleanup import apply_full_cleanup
+        total_fixes = 0
+        for section in state.get('sections', []):
+            content = section.get('content', '')
+            if not content:
+                continue
+            result = apply_full_cleanup(content)
+            section['content'] = result['text']
+            fixes = result['total_fixes']
+            if fixes:
+                logger.info(f"  [{section.get('title', '')}] 修复 {fixes} 处: {result['stats']}")
+                total_fixes += fixes
+        logger.info(f"[TextCleanup] 完成: 共修复 {total_fixes} 处")
+        return state
 
     def _humanizer_node(self, state: SharedState) -> SharedState:
         """去 AI 味节点"""
