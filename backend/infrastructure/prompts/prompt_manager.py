@@ -602,6 +602,18 @@ class PromptManager:
             audience_adaptation=audience_adaptation,
         )
 
+    def render_factcheck(
+        self,
+        all_content: str,
+        all_evidence: str,
+    ) -> str:
+        """渲染 FactCheck 事实核查 Prompt"""
+        return self.render(
+            'blog/factcheck',
+            all_content=all_content,
+            all_evidence=all_evidence,
+        )
+
     # ========== 小红书相关 Prompt ==========
 
     def render_xhs_outline(

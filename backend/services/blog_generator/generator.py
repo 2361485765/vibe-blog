@@ -29,6 +29,7 @@ from .agents.search_coordinator import SearchCoordinator
 from .agents.humanizer import HumanizerAgent
 from .agents.thread_checker import ThreadCheckerAgent
 from .agents.voice_checker import VoiceCheckerAgent
+from .agents.factcheck import FactCheckAgent
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,10 @@ class BlogGenerator:
         self.thread_checker = ThreadCheckerAgent(llm_client) if self._thread_check_enabled else None
         self.voice_checker = VoiceCheckerAgent(llm_client) if self._voice_check_enabled else None
 
+        # FactCheck（可通过环境变量禁用）
+        self._factcheck_enabled = os.getenv('FACTCHECK_ENABLED', 'true').lower() == 'true'
+        self.factcheck = FactCheckAgent(llm_client) if self._factcheck_enabled else None
+
         # 构建工作流
         self.workflow = self._build_workflow()
         self.app = None
@@ -133,6 +138,7 @@ class BlogGenerator:
         workflow.add_node("consistency_check", self._consistency_check_node)  # 一致性检查
         workflow.add_node("reviewer", self._reviewer_node)
         workflow.add_node("revision", self._revision_node)
+        workflow.add_node("factcheck", self._factcheck_node)
         workflow.add_node("humanizer", self._humanizer_node)
         workflow.add_node("assembler", self._assembler_node)
         
@@ -179,10 +185,11 @@ class BlogGenerator:
             self._should_revise,
             {
                 "revision": "revision",
-                "assemble": "humanizer"
+                "assemble": "factcheck"
             }
         )
         workflow.add_edge("revision", "reviewer")  # 修订后重新审核
+        workflow.add_edge("factcheck", "humanizer")  # 事实核查后去 AI 味
         workflow.add_edge("humanizer", "assembler")  # 去 AI 味后组装
         workflow.add_edge("assembler", END)
         
@@ -740,6 +747,18 @@ class BlogGenerator:
         voice_count = len(state.get('voice_issues', []))
         logger.info(f"[ConsistencyCheck] 完成: 叙事问题 {thread_count}, 语气问题 {voice_count}")
         return state
+
+    def _factcheck_node(self, state: SharedState) -> SharedState:
+        """事实核查节点"""
+        if not self._factcheck_enabled:
+            logger.info("=== Step 7.3: 事实核查（已禁用，跳过）===")
+            return state
+        logger.info("=== Step 7.3: 事实核查 ===")
+        try:
+            return self.factcheck.run(state)
+        except Exception as e:
+            logger.error(f"[FactCheck] 异常，降级跳过: {e}")
+            return state
 
     def _humanizer_node(self, state: SharedState) -> SharedState:
         """去 AI 味节点"""
