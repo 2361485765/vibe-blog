@@ -552,6 +552,28 @@ class PromptManager:
             content=content
         )
 
+    def render_humanizer_score(
+        self,
+        section_content: str,
+    ) -> str:
+        """渲染 Humanizer 评分 Prompt（仅评分，不改写）"""
+        return self.render(
+            'blog/humanizer_score',
+            section_content=section_content,
+        )
+
+    def render_humanizer(
+        self,
+        section_content: str,
+        audience_adaptation: str = "technical-beginner",
+    ) -> str:
+        """渲染 Humanizer 改写 Prompt"""
+        return self.render(
+            'blog/humanizer',
+            section_content=section_content,
+            audience_adaptation=audience_adaptation,
+        )
+
     # ========== 小红书相关 Prompt ==========
 
     def render_xhs_outline(

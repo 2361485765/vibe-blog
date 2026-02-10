@@ -91,7 +91,11 @@ class BlogGenerator:
         self.reviewer = ReviewerAgent(llm_client)
         self.assembler = AssemblerAgent()
         self.search_coordinator = SearchCoordinator(llm_client, search_service)
-        
+
+        # Humanizer（可通过环境变量禁用）
+        self._humanizer_enabled = os.getenv('HUMANIZER_ENABLED', 'true').lower() == 'true'
+        self.humanizer = HumanizerAgent(llm_client) if self._humanizer_enabled else None
+
         # 构建工作流
         self.workflow = self._build_workflow()
         self.app = None
@@ -119,6 +123,7 @@ class BlogGenerator:
         workflow.add_node("coder_and_artist", self._coder_and_artist_node)  # 并行节点
         workflow.add_node("reviewer", self._reviewer_node)
         workflow.add_node("revision", self._revision_node)
+        workflow.add_node("humanizer", self._humanizer_node)
         workflow.add_node("assembler", self._assembler_node)
         
         # 定义边
@@ -157,16 +162,17 @@ class BlogGenerator:
         # Coder 和 Artist 并行执行（通过单个节点内部并行实现）
         workflow.add_edge("coder_and_artist", "reviewer")
         
-        # 条件边：审核后决定是修订还是组装
+        # 条件边：审核后决定是修订还是进入去 AI 味
         workflow.add_conditional_edges(
             "reviewer",
             self._should_revise,
             {
                 "revision": "revision",
-                "assemble": "assembler"
+                "assemble": "humanizer"
             }
         )
         workflow.add_edge("revision", "reviewer")  # 修订后重新审核
+        workflow.add_edge("humanizer", "assembler")  # 去 AI 味后组装
         workflow.add_edge("assembler", END)
         
         return workflow
@@ -666,7 +672,19 @@ class BlogGenerator:
         after_count = _get_content_word_count(state)
         _log_word_count_diff("修订", before_count, after_count)
         return state
-    
+
+    def _humanizer_node(self, state: SharedState) -> SharedState:
+        """去 AI 味节点"""
+        if not self._humanizer_enabled:
+            logger.info("=== Step 7.5: 去 AI 味（已禁用，跳过）===")
+            return state
+        logger.info("=== Step 7.5: 去 AI 味 ===")
+        try:
+            return self.humanizer.run(state)
+        except Exception as e:
+            logger.error(f"[Humanizer] 异常，降级使用原始内容: {e}")
+            return state
+
     def _assembler_node(self, state: SharedState) -> SharedState:
         """文档组装节点"""
         logger.info("=== Step 8: 文档组装 ===")
