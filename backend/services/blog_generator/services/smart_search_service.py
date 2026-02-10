@@ -28,13 +28,48 @@ PROFESSIONAL_BLOGS = {
     'openai': {
         'site': 'openai.com',
         'name': 'OpenAI Blog',
-        'keywords': ['gpt', 'chatgpt', 'openai', 'dall-e', 'whisper']
+        'keywords': ['gpt', 'chatgpt', 'openai', 'dall-e', 'whisper', 'sora']
+    },
+    'huggingface': {
+        'site': 'huggingface.co',
+        'name': 'Hugging Face',
+        'keywords': ['huggingface', 'transformers', 'diffusers', '开源模型', 'llama', 'mistral']
     },
     'jiqizhixin': {
         'site': 'jiqizhixin.com',
         'name': '机器之心',
         'keywords': ['机器之心', '中文', 'ai资讯']
-    }
+    },
+    'github': {
+        'site': 'github.com',
+        'name': 'GitHub',
+        'keywords': ['github', '开源', 'repo', '仓库', '源码']
+    },
+    'google_ai': {
+        'site': 'blog.google/technology/ai',
+        'name': 'Google AI Blog',
+        'keywords': ['google', 'gemini', 'bard', 'deepmind', 'tensorflow', 'jax']
+    },
+    'devto': {
+        'site': 'dev.to',
+        'name': 'Dev.to',
+        'keywords': ['dev.to', '社区', 'tutorial']
+    },
+    'stackoverflow': {
+        'site': 'stackoverflow.com',
+        'name': 'Stack Overflow',
+        'keywords': ['stackoverflow', '问答', 'debug', '报错', 'error']
+    },
+    'aws': {
+        'site': 'aws.amazon.com/blogs',
+        'name': 'AWS Blog',
+        'keywords': ['aws', 'lambda', 'sagemaker', 'bedrock', 's3', 'ec2']
+    },
+    'microsoft': {
+        'site': 'devblogs.microsoft.com',
+        'name': 'Microsoft DevBlogs',
+        'keywords': ['azure', 'microsoft', 'copilot', '.net', 'typescript', 'vscode']
+    },
 }
 
 # 全局服务实例
@@ -137,9 +172,8 @@ class SmartSearchService:
     def _route_search_sources(self, topic: str) -> Dict[str, Any]:
         """使用 LLM 判断需要哪些搜索源"""
         if not self.llm:
-            # 无 LLM 时使用简单规则匹配
             return self._rule_based_routing(topic)
-        
+
         from ..prompts import get_prompt_manager
         prompt = get_prompt_manager().render_search_router(topic)
 
@@ -148,18 +182,41 @@ class SmartSearchService:
                 messages=[{"role": "user", "content": prompt}],
                 response_format={"type": "json_object"}
             )
-            
-            result = json.loads(response)
-            
+
+            result = self._extract_json(response)
+
             # 确保 general 始终包含
             if 'general' not in result.get('sources', []):
                 result['sources'].append('general')
-            
+
             return result
-            
+
         except Exception as e:
             logger.warning(f"LLM 路由失败，使用规则匹配: {e}")
             return self._rule_based_routing(topic)
+
+    @staticmethod
+    def _extract_json(text: str) -> dict:
+        """从 LLM 响应中提取 JSON（处理 markdown 包裹）"""
+        text = text.strip()
+        if '```json' in text:
+            start = text.find('```json') + 7
+            end = text.find('```', start)
+            if end != -1:
+                text = text[start:end].strip()
+            else:
+                text = text[start:].strip()
+        elif '```' in text:
+            start = text.find('```') + 3
+            end = text.find('```', start)
+            if end != -1:
+                text = text[start:end].strip()
+            else:
+                text = text[start:].strip()
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return json.loads(text, strict=False)
     
     def _rule_based_routing(self, topic: str) -> Dict[str, Any]:
         """基于规则的简单路由（LLM 不可用时的备选）"""
