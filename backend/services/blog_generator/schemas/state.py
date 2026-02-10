@@ -222,7 +222,11 @@ class SharedState(TypedDict):
     review_issues: List[dict]
     review_approved: bool
     revision_count: int  # 修订次数，防止无限循环
-    
+
+    # 一致性检查 (ThreadChecker + VoiceChecker 输出)
+    thread_issues: List[dict]  # 叙事一致性问题
+    voice_issues: List[dict]  # 语气统一问题
+
     # 最终输出 (Assembler 输出)
     final_markdown: Optional[str]
     final_html: Optional[str]
@@ -330,6 +334,8 @@ def create_initial_state(
         review_issues=[],
         review_approved=False,
         revision_count=0,
+        thread_issues=[],
+        voice_issues=[],
         final_markdown=None,
         final_html=None,
         output_folder=None,

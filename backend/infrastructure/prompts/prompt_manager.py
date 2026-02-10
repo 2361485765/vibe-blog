@@ -574,6 +574,34 @@ class PromptManager:
             audience_adaptation=audience_adaptation,
         )
 
+    def render_thread_check(
+        self,
+        document: str,
+        narrative_mode: str = "tutorial",
+        logic_chain: list = None,
+        core_questions: list = None,
+    ) -> str:
+        """渲染叙事一致性检查 Prompt"""
+        return self.render(
+            'blog/thread_check',
+            document=document,
+            narrative_mode=narrative_mode,
+            logic_chain=logic_chain or [],
+            core_questions=core_questions or [],
+        )
+
+    def render_voice_check(
+        self,
+        document: str,
+        audience_adaptation: str = "default",
+    ) -> str:
+        """渲染语气统一检查 Prompt"""
+        return self.render(
+            'blog/voice_check',
+            document=document,
+            audience_adaptation=audience_adaptation,
+        )
+
     # ========== 小红书相关 Prompt ==========
 
     def render_xhs_outline(
