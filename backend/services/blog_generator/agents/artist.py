@@ -377,6 +377,15 @@ class ArtistAgent:
                 if not is_valid:
                     logger.warning(f"[Mermaid] 语法校验失败: {error_msg}")
                     content = self._repair_mermaid(content, error_msg)
+
+                # Generator-Critic Loop (#69): 迭代优化 Mermaid 代码
+                if os.getenv("IMAGE_REFINE_ENABLED", "false").lower() == "true":
+                    content = self.refine_image(
+                        code=content,
+                        description=description,
+                        max_rounds=int(os.getenv("IMAGE_REFINE_MAX_ROUNDS", "2")),
+                        quality_threshold=float(os.getenv("IMAGE_REFINE_THRESHOLD", "8.0")),
+                    )
             else:
                 # 非 mermaid：仅清理 markdown 标记
                 if content.strip().startswith('```'):
@@ -404,6 +413,106 @@ class ArtistAgent:
         except Exception as e:
             logger.error(f"配图生成失败: {e}")
             raise
+
+    # ========== Generator-Critic Loop for Images (#69) ==========
+
+    def evaluate_image(self, code: str, description: str = "") -> Dict[str, Any]:
+        """评估图表代码质量（Critic 角色）"""
+        pm = get_prompt_manager()
+        prompt = pm.render_image_evaluator(code=code, description=description)
+
+        default_result = {
+            "scores": {
+                "structural_accuracy": 7,
+                "visual_clarity": 7,
+                "content_fidelity": 7,
+                "syntax_correctness": 7,
+            },
+            "overall_quality": 7.0,
+            "specific_issues": [],
+            "improvement_suggestions": [],
+        }
+
+        try:
+            response = self.llm.chat(
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+            )
+            if not response or not response.strip():
+                return default_result
+
+            result = _extract_json(response)
+            scores = result.get("scores", default_result["scores"])
+            score_values = [v for v in scores.values() if isinstance(v, (int, float))]
+            overall = result.get(
+                "overall_quality",
+                round(sum(score_values) / max(len(score_values), 1), 1),
+            )
+            return {
+                "scores": scores,
+                "overall_quality": overall,
+                "specific_issues": result.get("specific_issues", []),
+                "improvement_suggestions": result.get("improvement_suggestions", []),
+            }
+        except Exception as e:
+            logger.error(f"图表评估失败: {e}")
+            return default_result
+
+    def improve_image(self, original_code: str, critique: Dict[str, Any]) -> str:
+        """基于评审反馈改进图表代码（Generator 角色）"""
+        issues = critique.get("specific_issues", [])
+        suggestions = critique.get("improvement_suggestions", [])
+        if not issues and not suggestions:
+            return original_code
+
+        pm = get_prompt_manager()
+        prompt = pm.render_image_improve(
+            original_code=original_code,
+            scores=critique.get("scores", {}),
+            specific_issues=issues,
+            improvement_suggestions=suggestions,
+        )
+
+        try:
+            response = self.llm.chat(
+                messages=[{"role": "user", "content": prompt}]
+            )
+            if response and response.strip():
+                improved = self._sanitize_mermaid(response.strip())
+                return improved
+            return original_code
+        except Exception as e:
+            logger.error(f"图表改进失败: {e}")
+            return original_code
+
+    def refine_image(
+        self,
+        code: str,
+        description: str = "",
+        max_rounds: int = 2,
+        quality_threshold: float = 8.0,
+    ) -> str:
+        """Generator-Critic Loop: 迭代优化图表代码"""
+        current_code = code
+        for round_num in range(max_rounds):
+            evaluation = self.evaluate_image(current_code, description)
+            score = evaluation["overall_quality"]
+            logger.info(
+                f"[ImageRefine] Round {round_num + 1}: score={score:.1f}"
+            )
+
+            if score >= quality_threshold:
+                logger.info(f"[ImageRefine] 达到质量阈值 ({quality_threshold})，停止")
+                break
+
+            improved = self.improve_image(current_code, evaluation)
+            if improved == current_code:
+                logger.info("[ImageRefine] 无改进，停止")
+                break
+            current_code = improved
+
+        return current_code
+
     
     def _render_ai_image(
         self,

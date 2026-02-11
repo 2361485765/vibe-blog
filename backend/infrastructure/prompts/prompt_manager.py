@@ -575,6 +575,34 @@ class PromptManager:
             format_name=format_names.get(render_method, "图表"),
         )
 
+    def render_image_evaluator(
+        self,
+        code: str,
+        description: str = "",
+    ) -> str:
+        """渲染图表代码评估 Prompt（Generator-Critic Loop 的 Critic）"""
+        return self.render(
+            'blog/image_evaluator',
+            code=code,
+            description=description,
+        )
+
+    def render_image_improve(
+        self,
+        original_code: str,
+        scores: dict = None,
+        specific_issues: list = None,
+        improvement_suggestions: list = None,
+    ) -> str:
+        """渲染图表代码改进 Prompt（Generator-Critic Loop 的 Generator）"""
+        return self.render(
+            'blog/image_improve',
+            original_code=original_code,
+            scores=scores or {},
+            specific_issues=specific_issues or [],
+            improvement_suggestions=improvement_suggestions or [],
+        )
+
     def render_humanizer_score(
         self,
         section_content: str,
