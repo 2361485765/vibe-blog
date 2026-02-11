@@ -26,6 +26,11 @@ from .agents.questioner import QuestionerAgent
 from .agents.reviewer import ReviewerAgent
 from .agents.assembler import AssemblerAgent
 from .agents.search_coordinator import SearchCoordinator
+from .agents.humanizer import HumanizerAgent
+from .agents.thread_checker import ThreadCheckerAgent
+from .agents.voice_checker import VoiceCheckerAgent
+from .agents.factcheck import FactCheckAgent
+from .agents.summary_generator import SummaryGeneratorAgent
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +96,28 @@ class BlogGenerator:
         self.reviewer = ReviewerAgent(llm_client)
         self.assembler = AssemblerAgent()
         self.search_coordinator = SearchCoordinator(llm_client, search_service)
-        
+
+        # Humanizer（可通过环境变量禁用）
+        self._humanizer_enabled = os.getenv('HUMANIZER_ENABLED', 'true').lower() == 'true'
+        self.humanizer = HumanizerAgent(llm_client) if self._humanizer_enabled else None
+
+        # 一致性检查（ThreadChecker + VoiceChecker，可通过环境变量禁用）
+        self._thread_check_enabled = os.getenv('THREAD_CHECK_ENABLED', 'true').lower() == 'true'
+        self._voice_check_enabled = os.getenv('VOICE_CHECK_ENABLED', 'true').lower() == 'true'
+        self.thread_checker = ThreadCheckerAgent(llm_client) if self._thread_check_enabled else None
+        self.voice_checker = VoiceCheckerAgent(llm_client) if self._voice_check_enabled else None
+
+        # FactCheck（可通过环境变量禁用）
+        self._factcheck_enabled = os.getenv('FACTCHECK_ENABLED', 'true').lower() == 'true'
+        self.factcheck = FactCheckAgent(llm_client) if self._factcheck_enabled else None
+
+        # TextCleanup（可通过环境变量禁用）
+        self._text_cleanup_enabled = os.getenv('TEXT_CLEANUP_ENABLED', 'true').lower() == 'true'
+
+        # SummaryGenerator（可通过环境变量禁用）
+        self._summary_enabled = os.getenv('SUMMARY_GENERATOR_ENABLED', 'true').lower() == 'true'
+        self.summary_generator = SummaryGeneratorAgent(llm_client) if self._summary_enabled else None
+
         # 构建工作流
         self.workflow = self._build_workflow()
         self.app = None
@@ -117,9 +143,14 @@ class BlogGenerator:
         workflow.add_node("questioner", self._questioner_node)
         workflow.add_node("deepen_content", self._deepen_content_node)
         workflow.add_node("coder_and_artist", self._coder_and_artist_node)  # 并行节点
+        workflow.add_node("consistency_check", self._consistency_check_node)  # 一致性检查
         workflow.add_node("reviewer", self._reviewer_node)
         workflow.add_node("revision", self._revision_node)
+        workflow.add_node("factcheck", self._factcheck_node)
+        workflow.add_node("text_cleanup", self._text_cleanup_node)
+        workflow.add_node("humanizer", self._humanizer_node)
         workflow.add_node("assembler", self._assembler_node)
+        workflow.add_node("summary_generator", self._summary_generator_node)
         
         # 定义边
         workflow.add_edge(START, "researcher")
@@ -155,19 +186,24 @@ class BlogGenerator:
         workflow.add_edge("deepen_content", "questioner")  # 深化后重新追问
         
         # Coder 和 Artist 并行执行（通过单个节点内部并行实现）
-        workflow.add_edge("coder_and_artist", "reviewer")
+        workflow.add_edge("coder_and_artist", "consistency_check")
+        workflow.add_edge("consistency_check", "reviewer")
         
-        # 条件边：审核后决定是修订还是组装
+        # 条件边：审核后决定是修订还是进入去 AI 味
         workflow.add_conditional_edges(
             "reviewer",
             self._should_revise,
             {
                 "revision": "revision",
-                "assemble": "assembler"
+                "assemble": "factcheck"
             }
         )
         workflow.add_edge("revision", "reviewer")  # 修订后重新审核
-        workflow.add_edge("assembler", END)
+        workflow.add_edge("factcheck", "text_cleanup")  # 事实核查后文本清理
+        workflow.add_edge("text_cleanup", "humanizer")  # 文本清理后去 AI 味
+        workflow.add_edge("humanizer", "assembler")  # 去 AI 味后组装
+        workflow.add_edge("assembler", "summary_generator")
+        workflow.add_edge("summary_generator", END)
         
         return workflow
     
@@ -469,7 +505,16 @@ class BlogGenerator:
     def _reviewer_node(self, state: SharedState) -> SharedState:
         """质量审核节点"""
         logger.info("=== Step 7: 质量审核 ===")
-        return self.reviewer.run(state)
+        state = self.reviewer.run(state)
+
+        # 合并一致性检查发现的问题到 review_issues
+        consistency_issues = state.get('thread_issues', []) + state.get('voice_issues', [])
+        if consistency_issues:
+            existing = state.get('review_issues', [])
+            state['review_issues'] = existing + consistency_issues
+            logger.info(f"[Reviewer] 合并一致性检查问题: {len(consistency_issues)} 条")
+
+        return state
     
     def _revision_node(self, state: SharedState) -> SharedState:
         """修订节点（并行）"""
@@ -666,7 +711,112 @@ class BlogGenerator:
         after_count = _get_content_word_count(state)
         _log_word_count_diff("修订", before_count, after_count)
         return state
-    
+
+    def _consistency_check_node(self, state: SharedState) -> SharedState:
+        """一致性检查节点（Thread + Voice 并行）"""
+        from concurrent.futures import ThreadPoolExecutor
+
+        sections = state.get('sections', [])
+        if len(sections) < 2:
+            state['thread_issues'] = []
+            state['voice_issues'] = []
+            return state
+
+        logger.info("=== Step 6.5: 一致性检查（叙事 + 语气）===")
+
+        # 并行执行两个检查器（输入相同、输出写不同 state key，无竞争）
+        futures = []
+        use_parallel = _should_use_parallel()
+
+        if use_parallel and self._thread_check_enabled and self._voice_check_enabled:
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                if self._thread_check_enabled:
+                    futures.append(executor.submit(self.thread_checker.run, state))
+                if self._voice_check_enabled:
+                    futures.append(executor.submit(self.voice_checker.run, state))
+                for f in futures:
+                    f.result()
+        else:
+            if self._thread_check_enabled:
+                try:
+                    self.thread_checker.run(state)
+                except Exception as e:
+                    logger.error(f"[ThreadChecker] 异常: {e}")
+                    state['thread_issues'] = []
+            if self._voice_check_enabled:
+                try:
+                    self.voice_checker.run(state)
+                except Exception as e:
+                    logger.error(f"[VoiceChecker] 异常: {e}")
+                    state['voice_issues'] = []
+
+        if not self._thread_check_enabled:
+            state['thread_issues'] = []
+        if not self._voice_check_enabled:
+            state['voice_issues'] = []
+
+        thread_count = len(state.get('thread_issues', []))
+        voice_count = len(state.get('voice_issues', []))
+        logger.info(f"[ConsistencyCheck] 完成: 叙事问题 {thread_count}, 语气问题 {voice_count}")
+        return state
+
+    def _factcheck_node(self, state: SharedState) -> SharedState:
+        """事实核查节点"""
+        if not self._factcheck_enabled:
+            logger.info("=== Step 7.3: 事实核查（已禁用，跳过）===")
+            return state
+        logger.info("=== Step 7.3: 事实核查 ===")
+        try:
+            return self.factcheck.run(state)
+        except Exception as e:
+            logger.error(f"[FactCheck] 异常，降级跳过: {e}")
+            return state
+
+    def _text_cleanup_node(self, state: SharedState) -> SharedState:
+        """确定性文本清理节点（纯正则，零 LLM）"""
+        if not self._text_cleanup_enabled:
+            logger.info("=== Step 7.4: 文本清理（已禁用，跳过）===")
+            return state
+        logger.info("=== Step 7.4: 确定性文本清理 ===")
+        from utils.text_cleanup import apply_full_cleanup
+        total_fixes = 0
+        for section in state.get('sections', []):
+            content = section.get('content', '')
+            if not content:
+                continue
+            result = apply_full_cleanup(content)
+            section['content'] = result['text']
+            fixes = result['total_fixes']
+            if fixes:
+                logger.info(f"  [{section.get('title', '')}] 修复 {fixes} 处: {result['stats']}")
+                total_fixes += fixes
+        logger.info(f"[TextCleanup] 完成: 共修复 {total_fixes} 处")
+        return state
+
+    def _humanizer_node(self, state: SharedState) -> SharedState:
+        """去 AI 味节点"""
+        if not self._humanizer_enabled:
+            logger.info("=== Step 7.5: 去 AI 味（已禁用，跳过）===")
+            return state
+        logger.info("=== Step 7.5: 去 AI 味 ===")
+        try:
+            return self.humanizer.run(state)
+        except Exception as e:
+            logger.error(f"[Humanizer] 异常，降级使用原始内容: {e}")
+            return state
+
+    def _summary_generator_node(self, state: SharedState) -> SharedState:
+        """博客导读 + SEO 关键词生成节点"""
+        if not self._summary_enabled:
+            logger.info("=== Step 9: 导读+SEO（已禁用，跳过）===")
+            return state
+        logger.info("=== Step 9: 导读 + SEO 关键词生成 ===")
+        try:
+            return self.summary_generator.run(state)
+        except Exception as e:
+            logger.error(f"[SummaryGenerator] 异常，降级跳过: {e}")
+            return state
+
     def _assembler_node(self, state: SharedState) -> SharedState:
         """文档组装节点"""
         logger.info("=== Step 8: 文档组装 ===")
@@ -798,6 +948,9 @@ class BlogGenerator:
                 "images_count": len(final_state.get('images', [])),
                 "code_blocks_count": len(final_state.get('code_blocks', [])),
                 "review_score": final_state.get('review_score', 0),
+                "seo_keywords": final_state.get('seo_keywords', []),
+                "social_summary": final_state.get('social_summary', ''),
+                "meta_description": final_state.get('meta_description', ''),
                 "error": None
             }
             

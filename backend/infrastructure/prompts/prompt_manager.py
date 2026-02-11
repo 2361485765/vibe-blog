@@ -328,15 +328,13 @@ class PromptManager:
         search_results: list = None,
         background_knowledge: str = None
     ) -> str:
-        """渲染 Reviewer Prompt"""
+        """渲染 Reviewer Prompt（精简版：仅结构+完整性+verbatim+学习目标）"""
         return self.render(
             'blog/reviewer',
             document=document,
             outline=outline,
-            search_results=search_results or [],
             verbatim_data=verbatim_data or [],
             learning_objectives=learning_objectives or [],
-            background_knowledge=background_knowledge or ""
         )
 
     def render_assembler_header(
@@ -550,6 +548,82 @@ class PromptManager:
             'blog/missing_diagram_detector',
             section_title=section_title,
             content=content
+        )
+
+    def render_humanizer_score(
+        self,
+        section_content: str,
+    ) -> str:
+        """渲染 Humanizer 评分 Prompt（仅评分，不改写）"""
+        return self.render(
+            'blog/humanizer_score',
+            section_content=section_content,
+        )
+
+    def render_humanizer(
+        self,
+        section_content: str,
+        audience_adaptation: str = "technical-beginner",
+    ) -> str:
+        """渲染 Humanizer 改写 Prompt"""
+        return self.render(
+            'blog/humanizer',
+            section_content=section_content,
+            audience_adaptation=audience_adaptation,
+        )
+
+    def render_thread_check(
+        self,
+        document: str,
+        narrative_mode: str = "tutorial",
+        logic_chain: list = None,
+        core_questions: list = None,
+    ) -> str:
+        """渲染叙事一致性检查 Prompt"""
+        return self.render(
+            'blog/thread_check',
+            document=document,
+            narrative_mode=narrative_mode,
+            logic_chain=logic_chain or [],
+            core_questions=core_questions or [],
+        )
+
+    def render_voice_check(
+        self,
+        document: str,
+        audience_adaptation: str = "default",
+    ) -> str:
+        """渲染语气统一检查 Prompt"""
+        return self.render(
+            'blog/voice_check',
+            document=document,
+            audience_adaptation=audience_adaptation,
+        )
+
+    def render_factcheck(
+        self,
+        all_content: str,
+        all_evidence: str,
+    ) -> str:
+        """渲染 FactCheck 事实核查 Prompt"""
+        return self.render(
+            'blog/factcheck',
+            all_content=all_content,
+            all_evidence=all_evidence,
+        )
+
+    def render_summary_generator(
+        self,
+        title: str,
+        full_article: str,
+        learning_objectives: list = None,
+    ) -> str:
+        """渲染 SummaryGenerator 博客导读+SEO Prompt"""
+        return self.render(
+            'blog/summary_generator',
+            title=title,
+            full_article=full_article,
+            learning_objectives=learning_objectives or [],
         )
 
     # ========== 小红书相关 Prompt ==========

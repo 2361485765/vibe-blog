@@ -23,6 +23,38 @@ def _should_use_parallel():
 
 logger = logging.getLogger(__name__)
 
+# 图片预算：根据文章长度限制总图片数
+IMAGE_BUDGET = {
+    'mini': 3,
+    'short': 5,
+    'medium': 8,
+    'long': 12,
+    'custom': 8,
+}
+
+
+def _extract_json(text: str) -> dict:
+    """从 LLM 响应中提取 JSON（处理 markdown 包裹）"""
+    text = text.strip()
+    if '```json' in text:
+        start = text.find('```json') + 7
+        end = text.find('```', start)
+        if end != -1:
+            text = text[start:end].strip()
+        else:
+            text = text[start:].strip()
+    elif '```' in text:
+        start = text.find('```') + 3
+        end = text.find('```', start)
+        if end != -1:
+            text = text[start:end].strip()
+        else:
+            text = text[start:].strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return json.loads(text, strict=False)
+
 # Langfuse 追踪装饰器（只在 TRACE_ENABLED=true 时启用）
 def _get_langfuse_client():
     """获取 Langfuse client，未启用时返回 None"""
@@ -231,7 +263,63 @@ class ArtistAgent:
             logger.info(f"ASCII 流程图预处理完成: 共转换 {total_converted} 个")
         
         return sections
-    
+
+    # ========== Mermaid 语法修复 ==========
+
+    def _sanitize_mermaid(self, code: str) -> str:
+        """静态预处理：修复常见 Mermaid 语法问题"""
+        # 1. 移除 ```mermaid 标记
+        code = re.sub(r'^```(?:mermaid)?\s*\n?', '', code.strip())
+        code = re.sub(r'\n?```\s*$', '', code.strip())
+        # 2. 移除节点文本中的 \n 换行符
+        code = re.sub(r'(?<=\[)([^\]]*?)\\n([^\]]*?)(?=\])', r'\1 \2', code)
+        code = re.sub(r'(?<=\()([^\)]*?)\\n([^\)]*?)(?=\))', r'\1 \2', code)
+        # 3. 修复重复箭头 --> -->  变为 -->
+        code = re.sub(r'(-+>)\s*\1', r'\1', code)
+        return code.strip()
+
+    def _validate_mermaid(self, code: str) -> tuple:
+        """基础语法校验，返回 (is_valid, error_msg)"""
+        errors = []
+        first_line = code.strip().split('\n')[0].strip() if code.strip() else ''
+        if not re.match(r'^(flowchart|graph|sequenceDiagram|classDiagram|stateDiagram|gantt|pie|erDiagram|mindmap|timeline)', first_line):
+            errors.append("缺少图表类型声明")
+        subgraph_count = len(re.findall(r'\bsubgraph\b', code))
+        end_count = len(re.findall(r'^\s*end\s*$', code, re.MULTILINE))
+        if subgraph_count != end_count:
+            errors.append(f"subgraph({subgraph_count}) 与 end({end_count}) 不匹配")
+        if errors:
+            return False, "; ".join(errors)
+        return True, "OK"
+
+    def _repair_mermaid(self, mermaid_code: str, error_msg: str) -> str:
+        """用 LLM 修复 Mermaid 语法错误（最多 2 次重试）"""
+        max_retries = int(os.getenv('MERMAID_REPAIR_MAX_RETRIES', '2'))
+        for attempt in range(max_retries):
+            logger.info(f"[Mermaid] 语法修复 (尝试 {attempt + 1}/{max_retries}): {error_msg}")
+            prompt = f"""以下 Mermaid 代码有语法错误，请修复。只输出修复后的纯 Mermaid 代码，不要包含 ```mermaid 标记。
+
+错误信息：{error_msg}
+
+原始代码：
+{mermaid_code}
+
+修复要求：只修复语法错误，不改变图表内容和结构。节点文本不要用 \\n。含特殊字符的文本用双引号包裹。节点 ID 只用英文字母和数字。确保 subgraph 都有对应的 end。"""
+            try:
+                response = self.llm.chat(messages=[{"role": "user", "content": prompt}])
+                repaired = self._sanitize_mermaid(response.strip())
+                is_valid, new_error = self._validate_mermaid(repaired)
+                if is_valid:
+                    logger.info("[Mermaid] 语法修复成功")
+                    return repaired
+                error_msg = new_error
+                mermaid_code = repaired
+            except Exception as e:
+                logger.error(f"[Mermaid] 修复调用失败: {e}")
+                break
+        logger.warning("[Mermaid] 修复达到最大重试次数，返回最后结果")
+        return mermaid_code
+
     @observe(name="artist.generate_image", as_type="generation")
     def generate_image(
         self,
@@ -277,22 +365,35 @@ class ArtistAgent:
                 response_format={"type": "json_object"}
             )
             
-            result = json.loads(response)
+            result = _extract_json(response)
             content = result.get("content", "")
-            
-            # 清理 content：移除可能的 ```mermaid 标记
-            if content.strip().startswith('```mermaid'):
-                content = content.strip()
-                content = content[len('```mermaid'):].strip()
-                if content.endswith('```'):
-                    content = content[:-3].strip()
-            elif content.strip().startswith('```'):
-                content = content.strip()[3:].strip()
-                if content.endswith('```'):
-                    content = content[:-3].strip()
-            
+            render_method = result.get("render_method", "mermaid")
+            caption = result.get("caption", "")
+
+            # 改进 caption：如果 LLM 返回的 caption 是空的或太通用，使用章节标题
+            if not caption or caption == article_title:
+                caption = description[:60] if description else article_title
+
+            # Mermaid 语法修复链
+            if render_method == "mermaid":
+                content = self._sanitize_mermaid(content)
+                is_valid, error_msg = self._validate_mermaid(content)
+                if not is_valid:
+                    logger.warning(f"[Mermaid] 语法校验失败: {error_msg}")
+                    content = self._repair_mermaid(content, error_msg)
+            else:
+                # 非 mermaid：仅清理 markdown 标记
+                if content.strip().startswith('```'):
+                    content = content.strip()
+                    if content.startswith('```mermaid'):
+                        content = content[len('```mermaid'):].strip()
+                    else:
+                        content = content[3:].strip()
+                    if content.endswith('```'):
+                        content = content[:-3].strip()
+
             return {
-                "render_method": result.get("render_method", "mermaid"),
+                "render_method": render_method,
                 "content": content,
                 "caption": result.get("caption", "")
             }
@@ -433,7 +534,7 @@ class ArtistAgent:
                     response_format={"type": "json_object"}
                 )
                 
-                result = json.loads(response)
+                result = _extract_json(response)
                 needs_diagrams = result.get('needs_diagrams', [])
                 
                 # 每个章节最多补充 1 个图表
@@ -598,7 +699,20 @@ class ArtistAgent:
             logger.info("没有配图任务，跳过配图生成")
             state['images'] = []
             return state
-        
+
+        # 图片预算控制：根据文章长度限制总图片数
+        target_length = state.get('target_length', 'medium')
+        budget = IMAGE_BUDGET.get(target_length, IMAGE_BUDGET['medium'])
+        if len(tasks) > budget:
+            logger.info(f"图片预算控制: {len(tasks)} 张 → {budget} 张 (target_length={target_length})")
+            # 优先保留 outline 来源，其次 placeholder，最后 missing_diagram
+            priority = {'outline': 0, 'placeholder': 1, 'missing_diagram': 2}
+            tasks.sort(key=lambda t: (priority.get(t['source'], 9), t['order_idx']))
+            tasks = tasks[:budget]
+            # 重新编号 order_idx
+            for i, task in enumerate(tasks):
+                task['order_idx'] = i
+
         total_image_count = len(tasks)
         
         # 使用环境变量配置或传入的参数

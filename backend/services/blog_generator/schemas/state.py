@@ -81,7 +81,7 @@ class QuestionResult(BaseModel):
 class ReviewIssue(BaseModel):
     """审核问题"""
     section_id: str
-    issue_type: Literal["hallucination", "verbatim_violation", "learning_objective_gap", "logic", "accuracy", "completeness", "image", "readability"]
+    issue_type: Literal["completeness", "logic", "verbatim_violation", "learning_objective_gap"]
     severity: Literal["high", "medium", "low"]
     description: str
     suggestion: str
@@ -222,7 +222,22 @@ class SharedState(TypedDict):
     review_issues: List[dict]
     review_approved: bool
     revision_count: int  # 修订次数，防止无限循环
-    
+
+    # 一致性检查 (ThreadChecker + VoiceChecker 输出)
+    thread_issues: List[dict]  # 叙事一致性问题
+    voice_issues: List[dict]  # 语气统一问题
+
+    # 事实核查 (FactCheck 输出)
+    factcheck_report: Optional[dict]  # 核查报告 {overall_score, claims, fix_instructions}
+
+    # 导读 + SEO (SummaryGenerator 输出)
+    seo_keywords: List[str]  # SEO 关键词
+    social_summary: Optional[str]  # 社交媒体摘要
+    meta_description: Optional[str]  # Meta Description
+
+    # 配图 (Artist 输出 - 章节级)
+    section_images: List[dict]  # 章节配图映射
+
     # 最终输出 (Assembler 输出)
     final_markdown: Optional[str]
     final_html: Optional[str]
@@ -330,6 +345,13 @@ def create_initial_state(
         review_issues=[],
         review_approved=False,
         revision_count=0,
+        thread_issues=[],
+        voice_issues=[],
+        factcheck_report=None,
+        seo_keywords=[],
+        social_summary=None,
+        meta_description=None,
+        section_images=[],
         final_markdown=None,
         final_html=None,
         output_folder=None,
