@@ -578,8 +578,10 @@ class ArtistAgent:
             return state
         
         # ========== Mini 模式：使用专用的章节配图生成 ==========
+        # 通过 StyleProfile.image_generation_mode 或 target_length 判断
         target_length = state.get('target_length', 'medium')
-        if target_length in ('mini', 'short'):
+        image_mode = "mini_section" if target_length in ('mini', 'short') else "full"
+        if image_mode == "mini_section":
             logger.info(f"[{target_length}] 模式：使用章节配图生成")
             return self._generate_mini_section_images(state, sections)
         

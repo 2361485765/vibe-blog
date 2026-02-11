@@ -156,16 +156,11 @@ class QuestionerAgent:
         outline = state.get('outline', {})
         sections_outline = outline.get('sections', [])
         
-        # 根据目标长度确定深度要求
+        # 根据 StyleProfile 或 target_length 确定深度要求
+        from ..style_profile import StyleProfile
         target_length = state.get('target_length', 'medium')
-        depth_map = {
-            'mini': 'minimal',    # mini 模式使用最低深度要求
-            'short': 'shallow',
-            'medium': 'medium',
-            'long': 'deep',
-            'custom': 'medium'    # 自定义模式使用中等深度
-        }
-        depth_requirement = depth_map.get(target_length, 'medium')
+        style = StyleProfile.from_target_length(target_length)
+        depth_requirement = style.depth_requirement
         
         # 使用环境变量配置或传入的参数
         if max_workers is None:
