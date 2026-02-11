@@ -106,9 +106,12 @@ class LLMService:
             return None
         
         try:
-            # 如果指定了 JSON 格式，绑定到模型
+            # 如果指定了 JSON 格式，尝试绑定到模型（部分 provider 可能不支持）
             if response_format and response_format.get("type") == "json_object":
-                model = model.bind(response_format={"type": "json_object"})
+                try:
+                    model = model.bind(response_format={"type": "json_object"})
+                except Exception as bind_err:
+                    logger.warning(f"模型不支持 response_format 绑定: {bind_err}")
             
             # 转换消息格式
             langchain_messages = []
@@ -133,27 +136,35 @@ class LLMService:
         self,
         messages: List[Dict[str, Any]],
         temperature: float = 0.7,
-        on_chunk: callable = None
+        on_chunk: callable = None,
+        response_format: Dict[str, Any] = None
     ) -> Optional[str]:
         """
         发送流式聊天请求
-        
+
         Args:
             messages: 消息列表
             temperature: 温度参数
             on_chunk: 每收到一个 chunk 时的回调函数 (delta, accumulated)
-            
+            response_format: 响应格式，如 {"type": "json_object"}
+
         Returns:
             完整的模型响应文本，失败返回 None
         """
         from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
-        
+
         model = self.get_text_model()
         if not model:
             logger.error("模型不可用")
             return None
-        
+
         try:
+            # 如果指定了 JSON 格式，尝试绑定到模型（部分 provider 可能不支持）
+            if response_format and response_format.get("type") == "json_object":
+                try:
+                    model = model.bind(response_format={"type": "json_object"})
+                except Exception as bind_err:
+                    logger.warning(f"模型不支持 response_format 绑定: {bind_err}")
             # 转换消息格式
             langchain_messages = []
             for msg in messages:

@@ -510,7 +510,7 @@ class BlogService:
             final_state = self.generator.app.get_state(config).values
             
             # 生成封面架构图（基于全文内容）
-            outline = final_state.get('outline', {})
+            outline = final_state.get('outline') or {}
             markdown_content = final_state.get('final_markdown', '')
             # 从 final_state 获取图片风格参数
             image_style = final_state.get('image_style', '')
@@ -592,7 +592,7 @@ class BlogService:
                     article_type=article_type,
                     target_length=target_length,
                     markdown_content=markdown_with_cover,
-                    outline=json.dumps(final_state.get('outline', {}), ensure_ascii=False),
+                    outline=json.dumps(final_state.get('outline') or {}, ensure_ascii=False),
                     sections_count=len(final_state.get('sections', [])),
                     code_blocks_count=len(final_state.get('code_blocks', [])),
                     images_count=len(final_state.get('images', [])),
@@ -635,7 +635,7 @@ class BlogService:
                     'success': True,
                     'id': task_id,
                     'markdown': markdown_with_cover,
-                    'outline': final_state.get('outline', {}),
+                    'outline': final_state.get('outline') or {},
                     'sections_count': len(final_state.get('sections', [])),
                     'images_count': len(final_state.get('images', [])),
                     'code_blocks_count': len(final_state.get('code_blocks', [])),

@@ -109,7 +109,8 @@ class PlannerAgent:
                 
                 response = self.llm.chat_stream(
                     messages=[{"role": "user", "content": prompt}],
-                    on_chunk=on_chunk
+                    on_chunk=on_chunk,
+                    response_format={"type": "json_object"}
                 )
             else:
                 logger.info("使用普通生成大纲")
@@ -119,17 +120,39 @@ class PlannerAgent:
                 )
             
             # 解析 JSON（可能包含 markdown 代码块）
+            if not response:
+                raise ValueError("LLM 返回空响应")
             response_text = response.strip()
             if '```json' in response_text:
                 start = response_text.find('```json') + 7
                 end = response_text.find('```', start)
-                response_text = response_text[start:end].strip()
+                if end != -1:
+                    response_text = response_text[start:end].strip()
+                else:
+                    # 流式模式下可能缺少结尾 ```
+                    response_text = response_text[start:].strip()
             elif '```' in response_text:
                 start = response_text.find('```') + 3
                 end = response_text.find('```', start)
-                response_text = response_text[start:end].strip()
-            
-            outline = json.loads(response_text)
+                if end != -1:
+                    response_text = response_text[start:end].strip()
+                else:
+                    response_text = response_text[start:].strip()
+
+            # 尝试修复截断的 JSON（流式模式常见问题）
+            try:
+                outline = json.loads(response_text)
+            except json.JSONDecodeError:
+                # 尝试 strict=False
+                try:
+                    outline = json.loads(response_text, strict=False)
+                except json.JSONDecodeError as e:
+                    # 尝试补全截断的 JSON
+                    repaired = self._repair_truncated_json(response_text)
+                    if repaired:
+                        outline = json.loads(repaired)
+                    else:
+                        raise e
             
             # 验证必要字段
             required_fields = ['title', 'sections']
@@ -143,6 +166,7 @@ class PlannerAgent:
                     section['id'] = f"section_{i + 1}"
                 section.setdefault('core_question', '')
                 section.setdefault('assigned_materials', [])
+                section.setdefault('subsections', [])
             
             return outline
             
@@ -153,6 +177,45 @@ class PlannerAgent:
             logger.error(f"大纲生成失败: {e}")
             raise
     
+    @staticmethod
+    def _repair_truncated_json(text: str) -> str:
+        """尝试修复截断的 JSON（补全缺失的括号和引号）"""
+        # 统计未闭合的括号
+        open_braces = text.count('{') - text.count('}')
+        open_brackets = text.count('[') - text.count(']')
+
+        if open_braces <= 0 and open_brackets <= 0:
+            return ""
+
+        repaired = text.rstrip().rstrip(',')
+
+        # 如果在字符串中间截断，先闭合字符串
+        # 简单启发式：检查最后一个引号是否未配对
+        in_string = False
+        escaped = False
+        for ch in repaired:
+            if escaped:
+                escaped = False
+                continue
+            if ch == '\\':
+                escaped = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+        if in_string:
+            repaired += '"'
+
+        # 补全括号
+        repaired += ']' * open_brackets
+        repaired += '}' * open_braces
+
+        try:
+            json.loads(repaired)
+            logger.warning(f"[Planner] JSON 截断已修复 (补全 {open_braces} 个 '}}', {open_brackets} 个 ']')")
+            return repaired
+        except json.JSONDecodeError:
+            return ""
+
     def run(self, state: Dict[str, Any], on_stream: callable = None) -> Dict[str, Any]:
         """
         执行大纲规划
