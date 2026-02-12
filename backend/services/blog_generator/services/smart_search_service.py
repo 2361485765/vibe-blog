@@ -134,12 +134,15 @@ class SmartSearchService:
     def __init__(self, llm_client=None):
         """
         初始化智能搜索服务
-        
+
         Args:
             llm_client: LLM 客户端，用于智能路由
         """
         self.llm = llm_client
         self.max_workers = int(os.environ.get('BLOG_GENERATOR_MAX_WORKERS', '3'))
+        # 37.04: 查询重复检测
+        from utils.query_deduplicator import QueryDeduplicator
+        self.deduplicator = QueryDeduplicator()
     
     def search(self, topic: str, article_type: str = '', max_results_per_source: int = 5) -> Dict[str, Any]:
         """
@@ -154,7 +157,23 @@ class SmartSearchService:
             合并后的搜索结果
         """
         logger.info(f"🧠 智能搜索开始: {topic}")
-        
+
+        # 37.04: 查询重复检测
+        if self.deduplicator.is_duplicate(topic, agent="smart_search"):
+            logger.warning(f"🔁 重复查询跳过: {topic}")
+            allowed = self.deduplicator.rollback()
+            return {
+                'success': True,
+                'results': [],
+                'summary': '',
+                'sources_used': [],
+                'error': None,
+                'skipped_duplicate': True,
+                'rollback_allowed': allowed,
+            }
+        self.deduplicator.record(topic, agent="smart_search")
+        self.deduplicator.reset_rollback_count()
+
         # 第一步：LLM 判断需要哪些搜索源
         routing_result = self._route_search_sources(topic)
         
