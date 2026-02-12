@@ -135,6 +135,9 @@ class Config:
     DEEP_SCRAPE_TOP_N = int(os.getenv('DEEP_SCRAPE_TOP_N', '3'))
     DEEP_SCRAPE_TIMEOUT = int(os.getenv('DEEP_SCRAPE_TIMEOUT', '30'))
 
+    # 知识空白检测与多轮搜索（75.04）
+    MULTI_ROUND_SEARCH_ENABLED = os.getenv('MULTI_ROUND_SEARCH_ENABLED', 'true').lower() == 'true'
+
 
 class DevelopmentConfig(Config):
     """开发环境配置"""
