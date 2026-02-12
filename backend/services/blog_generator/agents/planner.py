@@ -4,6 +4,7 @@ Planner Agent - 大纲规划
 
 import json
 import logging
+import re
 from typing import Dict, Any
 
 from ..prompts import get_prompt_manager
@@ -187,34 +188,65 @@ class PlannerAgent:
         if open_braces <= 0 and open_brackets <= 0:
             return ""
 
-        repaired = text.rstrip().rstrip(',')
+        repaired = text.rstrip()
 
-        # 如果在字符串中间截断，先闭合字符串
-        # 简单启发式：检查最后一个引号是否未配对
-        in_string = False
-        escaped = False
-        for ch in repaired:
-            if escaped:
-                escaped = False
-                continue
-            if ch == '\\':
-                escaped = True
-                continue
-            if ch == '"':
-                in_string = not in_string
-        if in_string:
-            repaired += '"'
+        # 策略：从末尾向前回退到最后一个完整的 JSON 值边界
+        # 完整值边界的标志：}, ], "string", number, true, false, null
+        # 然后从那里补全括号
 
-        # 补全括号
-        repaired += ']' * open_brackets
-        repaired += '}' * open_braces
+        # 先尝试直接补全（简单情况）
+        for attempt in range(3):
+            candidate = repaired.rstrip().rstrip(',')
 
-        try:
-            json.loads(repaired)
-            logger.warning(f"[Planner] JSON 截断已修复 (补全 {open_braces} 个 '}}', {open_brackets} 个 ']')")
-            return repaired
-        except json.JSONDecodeError:
-            return ""
+            # 检查是否在字符串中间
+            in_string = False
+            escaped = False
+            for ch in candidate:
+                if escaped:
+                    escaped = False
+                    continue
+                if ch == '\\':
+                    escaped = True
+                    continue
+                if ch == '"':
+                    in_string = not in_string
+
+            if in_string:
+                candidate += '"'
+
+            # 检查末尾是否是不完整的 key-value（如 "key": 没有值）
+            stripped = candidate.rstrip()
+            if stripped.endswith(':'):
+                candidate = stripped + ' ""'
+            elif re.search(r':\s*$', stripped):
+                candidate = stripped + '""'
+
+            ob = candidate.count('{') - candidate.count('}')
+            ol = candidate.count('[') - candidate.count(']')
+            candidate += ']' * max(0, ol)
+            candidate += '}' * max(0, ob)
+
+            try:
+                json.loads(candidate)
+                logger.warning(f"[Planner] JSON 截断已修复 (attempt {attempt + 1})")
+                return candidate
+            except json.JSONDecodeError:
+                pass
+
+            # 回退策略：删除最后一个不完整的 key-value 对
+            # 找到最后一个逗号或开括号，截断到那里
+            last_comma = repaired.rfind(',')
+            last_open_brace = repaired.rfind('{')
+            last_open_bracket = repaired.rfind('[')
+            cutpoint = max(last_comma, last_open_brace, last_open_bracket)
+            if cutpoint <= 0:
+                return ""
+            if cutpoint == last_comma:
+                repaired = repaired[:cutpoint]
+            else:
+                repaired = repaired[:cutpoint + 1]
+
+        return ""
 
     def run(self, state: Dict[str, Any], on_stream: callable = None) -> Dict[str, Any]:
         """

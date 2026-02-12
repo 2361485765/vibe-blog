@@ -72,7 +72,7 @@ def run_e2e_test():
         seen_logs = set()
         ai_boost_detected = False
         smart_search_detected = False
-        max_wait = 300  # 最多等 5 分钟
+        max_wait = 900  # 最多等 15 分钟（串行模式下耗时较长）
         start_time = time.time()
 
         while time.time() - start_time < max_wait:

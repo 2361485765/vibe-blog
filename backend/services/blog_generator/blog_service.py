@@ -1243,26 +1243,27 @@ class LLMClientAdapter:
         else:
             raise Exception('LLM 调用失败')
     
-    def chat_stream(self, messages, on_chunk=None):
+    def chat_stream(self, messages, on_chunk=None, response_format=None):
         """
         流式调用 LLM 进行对话
-        
+
         Args:
             messages: 消息列表
             on_chunk: 每收到一个 chunk 时的回调函数 (delta, accumulated)
-            
+            response_format: 响应格式 (可选)，如 {"type": "json_object"}
+
         Returns:
             完整的 LLM 响应文本
         """
         if hasattr(self.llm_service, 'chat_stream'):
-            result = self.llm_service.chat_stream(messages, on_chunk=on_chunk)
+            result = self.llm_service.chat_stream(messages, on_chunk=on_chunk, response_format=response_format)
             if result:
                 return result
             else:
                 raise Exception('LLM 流式调用失败')
         else:
             # 降级为普通调用
-            return self.chat(messages)
+            return self.chat(messages, response_format=response_format)
 
 
 def get_blog_service() -> Optional[BlogService]:

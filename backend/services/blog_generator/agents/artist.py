@@ -1045,8 +1045,8 @@ class ArtistAgent:
                 # 更新章节关联
                 if section_idx is not None and section_idx < len(sections):
                     # 大纲来源的图片始终关联
-                    # 占位符来源的图片只有 rendered_path 时才关联
-                    if source == 'outline' or image_resource.get('rendered_path'):
+                    # 占位符来源的图片：rendered_path 存在 或 mermaid 类型（无需 rendered_path）
+                    if source == 'outline' or image_resource.get('rendered_path') or image_resource.get('render_method') == 'mermaid':
                         section_image_ids[section_idx].append(image_resource['id'])
         
         # 更新章节的 image_ids
