@@ -106,31 +106,49 @@ class LLMService:
         if self.provider_format == 'gemini':
             return bool(self._google_api_key)
         return bool(self._openai_api_key)
+
+    @staticmethod
+    def _convert_messages(messages: List[Dict[str, Any]]) -> list:
+        """将 dict 格式消息转换为 LangChain 消息对象"""
+        from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+        langchain_messages = []
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if role == "system":
+                langchain_messages.append(SystemMessage(content=content))
+            elif role == "assistant":
+                langchain_messages.append(AIMessage(content=content))
+            else:
+                langchain_messages.append(HumanMessage(content=content))
+        return langchain_messages
     
     def chat(
         self,
         messages: List[Dict[str, Any]],
         temperature: float = 0.7,
-        response_format: Dict[str, Any] = None
+        response_format: Dict[str, Any] = None,
+        caller: str = "",
     ) -> Optional[str]:
         """
-        发送聊天请求
-        
+        发送聊天请求（带截断扩容、智能重试、超时保护）
+
         Args:
             messages: 消息列表，格式 [{"role": "user/system/assistant", "content": "..."}]
             temperature: 温度参数
             response_format: 响应格式，如 {"type": "json_object"}
-            
+            caller: 调用方标识（用于日志追踪）
+
         Returns:
             模型响应文本，失败返回 None
         """
-        from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
-        
+        from utils.resilient_llm_caller import resilient_chat, ContextLengthExceeded
+
         model = self.get_text_model()
         if not model:
             logger.error("模型不可用")
             return None
-        
+
         try:
             # 如果指定了 JSON 格式，尝试绑定到模型（部分 provider 可能不支持）
             if response_format and response_format.get("type") == "json_object":
@@ -140,32 +158,23 @@ class LLMService:
                     logger.warning(f"模型不支持 response_format 绑定: {bind_err}")
 
             # 转换消息格式
-            langchain_messages = []
-            for msg in messages:
-                role = msg.get("role", "user")
-                content = msg.get("content", "")
+            langchain_messages = self._convert_messages(messages)
 
-                if role == "system":
-                    langchain_messages.append(SystemMessage(content=content))
-                elif role == "assistant":
-                    langchain_messages.append(AIMessage(content=content))
-                else:
-                    langchain_messages.append(HumanMessage(content=content))
+            # 使用 resilient_chat 替代原来的简单调用
+            content, metadata = resilient_chat(
+                model=model,
+                messages=langchain_messages,
+                caller=caller,
+            )
 
-            # 带应用层重试的调用（处理 429 速率限制）
-            max_app_retries = 3
-            for attempt in range(max_app_retries):
-                try:
-                    _rate_limit()
-                    response = model.invoke(langchain_messages)
-                    return response.content.strip()
-                except Exception as invoke_err:
-                    if '429' in str(invoke_err) and attempt < max_app_retries - 1:
-                        wait = (attempt + 1) * 5  # 5s, 10s
-                        logger.warning(f"LLM 429 速率限制，等待 {wait}s 后重试 (attempt {attempt + 1}/{max_app_retries})")
-                        time.sleep(wait)
-                    else:
-                        raise invoke_err
+            if metadata.get("truncated"):
+                logger.warning(f"[{caller}] 响应被截断，内容可能不完整")
+
+            return content
+
+        except ContextLengthExceeded as e:
+            logger.error(f"上下文超限: {e}")
+            return None
         except Exception as e:
             logger.error(f"LLM 调用失败: {e}")
             return None
@@ -175,21 +184,27 @@ class LLMService:
         messages: List[Dict[str, Any]],
         temperature: float = 0.7,
         on_chunk: callable = None,
-        response_format: Dict[str, Any] = None
+        response_format: Dict[str, Any] = None,
+        caller: str = "",
     ) -> Optional[str]:
         """
-        发送流式聊天请求
+        发送流式聊天请求（带超时保护和智能重试）
 
         Args:
             messages: 消息列表
             temperature: 温度参数
             on_chunk: 每收到一个 chunk 时的回调函数 (delta, accumulated)
             response_format: 响应格式，如 {"type": "json_object"}
+            caller: 调用方标识（用于日志追踪）
 
         Returns:
             完整的模型响应文本，失败返回 None
         """
-        from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+        from utils.resilient_llm_caller import (
+            timeout_guard, is_truncated, is_context_length_error,
+            LLMCallTimeout, ContextLengthExceeded,
+            DEFAULT_LLM_TIMEOUT, DEFAULT_MAX_RETRIES, DEFAULT_BASE_WAIT, DEFAULT_MAX_WAIT,
+        )
 
         model = self.get_text_model()
         if not model:
@@ -197,44 +212,56 @@ class LLMService:
             return None
 
         try:
-            # 如果指定了 JSON 格式，尝试绑定到模型（部分 provider 可能不支持）
             if response_format and response_format.get("type") == "json_object":
                 try:
                     model = model.bind(response_format={"type": "json_object"})
                 except Exception as bind_err:
                     logger.warning(f"模型不支持 response_format 绑定: {bind_err}")
-            # 转换消息格式
-            langchain_messages = []
-            for msg in messages:
-                role = msg.get("role", "user")
-                content = msg.get("content", "")
 
-                if role == "system":
-                    langchain_messages.append(SystemMessage(content=content))
-                elif role == "assistant":
-                    langchain_messages.append(AIMessage(content=content))
-                else:
-                    langchain_messages.append(HumanMessage(content=content))
+            langchain_messages = self._convert_messages(messages)
+            label = f"[{caller}] " if caller else ""
 
-            # 带应用层重试的流式调用
-            max_app_retries = 3
-            for attempt in range(max_app_retries):
+            for attempt in range(DEFAULT_MAX_RETRIES):
+                attempts = attempt + 1
                 try:
                     _rate_limit()
                     full_content = ""
-                    for chunk in model.stream(langchain_messages):
-                        delta = chunk.content if hasattr(chunk, 'content') else str(chunk)
-                        full_content += delta
-                        if on_chunk:
-                            on_chunk(delta, full_content)
+                    with timeout_guard(DEFAULT_LLM_TIMEOUT):
+                        for chunk in model.stream(langchain_messages):
+                            delta = chunk.content if hasattr(chunk, 'content') else str(chunk)
+                            full_content += delta
+                            if on_chunk:
+                                on_chunk(delta, full_content)
                     return full_content.strip()
-                except Exception as stream_err:
-                    if '429' in str(stream_err) and attempt < max_app_retries - 1:
-                        wait = (attempt + 1) * 5
-                        logger.warning(f"LLM 流式 429 速率限制，等待 {wait}s 后重试 (attempt {attempt + 1}/{max_app_retries})")
+
+                except LLMCallTimeout:
+                    if attempt < DEFAULT_MAX_RETRIES - 1:
+                        wait = min(DEFAULT_BASE_WAIT * (2 ** attempt), DEFAULT_MAX_WAIT)
+                        logger.warning(f"{label}流式调用超时，等待 {wait:.0f}s 后重试 (attempt {attempts}/{DEFAULT_MAX_RETRIES})")
                         time.sleep(wait)
-                    else:
-                        raise stream_err
+                        continue
+                    raise
+
+                except Exception as stream_err:
+                    if is_context_length_error(stream_err):
+                        raise ContextLengthExceeded(str(stream_err)) from stream_err
+
+                    if '429' in str(stream_err) and attempt < DEFAULT_MAX_RETRIES - 1:
+                        wait = min(DEFAULT_BASE_WAIT * (2 ** attempt), DEFAULT_MAX_WAIT)
+                        logger.warning(f"{label}流式 429 速率限制，等待 {wait:.0f}s 后重试 (attempt {attempts}/{DEFAULT_MAX_RETRIES})")
+                        time.sleep(wait)
+                        continue
+
+                    if attempt < DEFAULT_MAX_RETRIES - 1:
+                        wait = min(DEFAULT_BASE_WAIT * (2 ** attempt), DEFAULT_MAX_WAIT)
+                        logger.warning(f"{label}流式调用失败: {stream_err}，等待 {wait:.0f}s 后重试 (attempt {attempts}/{DEFAULT_MAX_RETRIES})")
+                        time.sleep(wait)
+                        continue
+                    raise
+
+        except ContextLengthExceeded as e:
+            logger.error(f"流式调用上下文超限: {e}")
+            return None
         except Exception as e:
             logger.error(f"LLM 流式调用失败: {e}")
             return None
