@@ -116,6 +116,10 @@ class Config:
     SOGOU_SEARCH_TIMEOUT = int(os.getenv('SOGOU_SEARCH_TIMEOUT', '10'))
     SOGOU_MAX_RESULTS = int(os.getenv('SOGOU_MAX_RESULTS', '10'))
 
+    # 多提供商 LLM 客户端工厂（37.29）
+    DEFAULT_LLM_PROVIDER = os.getenv('DEFAULT_LLM_PROVIDER', 'openai')
+    DEFAULT_LLM_MODEL = os.getenv('DEFAULT_LLM_MODEL', '')
+
 
 class DevelopmentConfig(Config):
     """开发环境配置"""

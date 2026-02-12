@@ -76,7 +76,25 @@ class LLMService:
         self.task_id = None
     
     def _create_chat_model(self, model_name: str):
-        """创建 LangChain ChatModel 实例"""
+        """创建 LangChain ChatModel 实例（优先使用 ClientFactory）"""
+        try:
+            # 37.29: 尝试通过 ClientFactory 创建（支持多提供商）
+            from services.llm_factory import create_llm_client, PROVIDER_CONFIGS
+            provider = self.provider_format
+            if provider in PROVIDER_CONFIGS:
+                return create_llm_client(
+                    provider=provider,
+                    model_name=model_name,
+                    api_key=self._openai_api_key or None,
+                    base_url=self._openai_api_base or None,
+                    max_tokens=self.max_tokens,
+                )
+        except (ImportError, ValueError):
+            pass
+        except Exception as e:
+            logger.debug(f"ClientFactory 创建失败，回退原始逻辑: {e}")
+
+        # 回退：原始创建逻辑（gemini 等）
         try:
             if self.provider_format == 'gemini' and self._google_api_key:
                 from langchain_google_genai import ChatGoogleGenerativeAI
