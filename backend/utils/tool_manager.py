@@ -91,6 +91,30 @@ class BlogToolManager:
             if td.name not in self._blacklist
         ]
 
+    # ---- 参数自动修复 ----
+
+    # 工具参数别名映射：{tool_name: {wrong_param: correct_param}}
+    _PARAM_ALIASES: Dict[str, Dict[str, str]] = {
+        "web_search": {"q": "query", "keyword": "query", "keywords": "query"},
+        "deep_scrape": {"description": "info_to_extract", "introduction": "info_to_extract"},
+    }
+
+    def fix_arguments(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        修正 LLM 常见的参数名错误
+
+        来源：MiroThinker fix_tool_call_arguments()
+        """
+        aliases = self._PARAM_ALIASES.get(tool_name, {})
+        if not aliases:
+            return arguments
+        fixed = arguments.copy()
+        for wrong, correct in aliases.items():
+            if correct not in fixed and wrong in fixed:
+                fixed[correct] = fixed.pop(wrong)
+                logger.debug(f"参数修正: {tool_name}.{wrong} → {correct}")
+        return fixed
+
     # ---- 执行 ----
 
     def execute_tool(self, name: str, **kwargs) -> Dict[str, Any]:
@@ -107,6 +131,9 @@ class BlogToolManager:
 
         if name in self._blacklist:
             return {"success": False, "result": None, "error": f"Tool blacklisted: {name}", "duration_ms": 0}
+
+        # 参数自动修复
+        kwargs = self.fix_arguments(name, kwargs)
 
         start = time.time()
         result_holder = [None]

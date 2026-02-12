@@ -184,3 +184,43 @@ class TestExecutionStats:
 
         stats = mgr.get_execution_stats()
         assert stats["bad"]["failures"] == 1
+
+
+# ============ 参数自动修复 ============
+
+class TestFixArguments:
+    def test_fix_known_alias(self):
+        mgr = BlogToolManager()
+        fixed = mgr.fix_arguments("web_search", {"q": "AI"})
+        assert fixed == {"query": "AI"}
+
+    def test_no_fix_when_correct(self):
+        mgr = BlogToolManager()
+        fixed = mgr.fix_arguments("web_search", {"query": "AI"})
+        assert fixed == {"query": "AI"}
+
+    def test_no_fix_for_unknown_tool(self):
+        mgr = BlogToolManager()
+        fixed = mgr.fix_arguments("unknown_tool", {"q": "AI"})
+        assert fixed == {"q": "AI"}
+
+    def test_fix_deep_scrape(self):
+        mgr = BlogToolManager()
+        fixed = mgr.fix_arguments("deep_scrape", {"url": "http://x", "description": "get title"})
+        assert "info_to_extract" in fixed
+        assert "description" not in fixed
+        assert fixed["url"] == "http://x"
+
+    def test_fix_integrated_in_execute(self):
+        """execute_tool 内部自动调用 fix_arguments"""
+        mgr = BlogToolManager()
+        received = {}
+
+        def search_fn(query=""):
+            received["query"] = query
+            return query
+
+        mgr.register("web_search", search_fn, description="搜索")
+        result = mgr.execute_tool("web_search", q="test")
+        assert result["success"] is True
+        assert received["query"] == "test"
