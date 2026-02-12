@@ -230,7 +230,16 @@ class BlogService:
         
         # 等待 SSE 连接建立
         time.sleep(0.5)
-        
+
+        # 注入 SSE 事件推送到 LLMService（37.34）
+        if task_manager:
+            try:
+                llm = self.generator.llm
+                llm.task_manager = task_manager
+                llm.task_id = task_id
+            except Exception:
+                pass
+
         try:
             # 发送开始事件
             if task_manager:
@@ -631,7 +640,7 @@ class BlogService:
             
             # 发送完成事件（使用包含封面图的 markdown）
             if task_manager:
-                task_manager.send_event(task_id, 'complete', {
+                complete_data = {
                     'success': True,
                     'id': task_id,
                     'markdown': markdown_with_cover,
@@ -642,7 +651,16 @@ class BlogService:
                     'review_score': final_state.get('review_score', 0),
                     'saved_path': saved_path,
                     'cover_video': cover_video_path
-                })
+                }
+                # 注入 token 用量摘要（37.34 + 37.31）
+                if os.environ.get('SSE_TOKEN_SUMMARY_ENABLED', 'true').lower() != 'false':
+                    try:
+                        llm = self.generator.llm
+                        if hasattr(llm, 'token_tracker') and llm.token_tracker:
+                            complete_data['token_usage'] = llm.token_tracker.get_summary()
+                    except Exception:
+                        pass
+                task_manager.send_event(task_id, 'complete', complete_data)
             
             logger.info(f"博客生成完成: {task_id}, 保存到: {saved_path}")
             

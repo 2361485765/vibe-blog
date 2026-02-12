@@ -97,6 +97,10 @@ class Config:
     BLOG_TASK_LOG_ENABLED = os.getenv('BLOG_TASK_LOG_ENABLED', 'true').lower() == 'true'
     BLOG_LOGS_DIR = os.getenv('BLOG_LOGS_DIR', 'logs/blog_tasks')
 
+    # SSE 流式事件增量优化（37.34）
+    SSE_LLM_EVENTS_ENABLED = os.getenv('SSE_LLM_EVENTS_ENABLED', 'true').lower() == 'true'
+    SSE_TOKEN_SUMMARY_ENABLED = os.getenv('SSE_TOKEN_SUMMARY_ENABLED', 'true').lower() == 'true'
+
 
 class DevelopmentConfig(Config):
     """开发环境配置"""

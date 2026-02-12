@@ -3,6 +3,7 @@ LLM 服务模块 - 统一管理大模型客户端
 
 """
 import logging
+import os
 import threading
 import time
 from typing import Optional, List, Dict, Any
@@ -69,6 +70,10 @@ class LLMService:
 
         # Token 追踪器（由 BlogGenerator 注入，默认 None）
         self.token_tracker = None
+
+        # SSE 事件推送（由 BlogService 注入，默认 None）
+        self.task_manager = None
+        self.task_id = None
     
     def _create_chat_model(self, model_name: str):
         """创建 LangChain ChatModel 实例"""
@@ -172,12 +177,35 @@ class LLMService:
             # 转换消息格式
             langchain_messages = self._convert_messages(messages)
 
+            # SSE: 发送 llm_start 事件
+            _send_llm = (
+                self.task_manager and self.task_id
+                and os.environ.get('SSE_LLM_EVENTS_ENABLED', 'true').lower() != 'false'
+            )
+            start_time = time.time()
+            if _send_llm:
+                self.task_manager.send_event(self.task_id, 'llm_start', {
+                    'agent': caller,
+                    'model': self.text_model,
+                })
+
             # 使用 resilient_chat 替代原来的简单调用
             content, metadata = resilient_chat(
                 model=model,
                 messages=langchain_messages,
                 caller=caller,
             )
+
+            # SSE: 发送 llm_end 事件
+            if _send_llm:
+                duration_ms = int((time.time() - start_time) * 1000)
+                self.task_manager.send_event(self.task_id, 'llm_end', {
+                    'agent': caller,
+                    'model': self.text_model,
+                    'duration_ms': duration_ms,
+                    'truncated': metadata.get('truncated', False),
+                    'attempts': metadata.get('attempts', 1),
+                })
 
             if metadata.get("truncated"):
                 logger.warning(f"[{caller}] 响应被截断，内容可能不完整")
