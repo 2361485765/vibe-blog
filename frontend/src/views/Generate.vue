@@ -53,6 +53,7 @@
         <ProgressDrawer
           :visible="true"
           :expanded="true"
+          :embedded="true"
           :is-loading="isLoading"
           :status-badge="statusBadge"
           :progress-text="progressText"

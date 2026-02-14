@@ -2,7 +2,7 @@
   <div
     v-if="visible"
     class="progress-drawer"
-    :class="{ expanded: expanded }"
+    :class="{ expanded: expanded, embedded: embedded }"
   >
     <!-- 最小化状态栏 -->
     <div class="progress-bar-mini" @click="$emit('toggle')">
@@ -211,6 +211,7 @@ interface Props {
   outlineData: OutlineData | null
   waitingForOutline: boolean
   previewContent: string
+  embedded?: boolean
 }
 
 interface Emits {
@@ -272,6 +273,22 @@ const getLogIcon = (type: string) => {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-xl);
   transition: var(--transition-all);
+}
+
+.progress-drawer.embedded {
+  position: relative;
+  bottom: auto;
+  left: auto;
+  transform: none;
+  width: 100%;
+  max-width: none;
+  z-index: auto;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 @media (min-width: 1440px) {
@@ -399,6 +416,17 @@ const getLogIcon = (type: string) => {
   max-height: 440px;
   overflow: hidden;
   border-top: 1px solid var(--color-border);
+}
+
+.embedded .progress-content {
+  max-height: none;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.embedded .progress-logs-container {
+  max-height: none;
+  height: auto;
 }
 
 /* Tab 栏 */
