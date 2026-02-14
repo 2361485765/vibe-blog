@@ -14,6 +14,9 @@ describe('ProgressDrawer.vue', () => {
     articleType: 'tutorial',
     targetLength: 'medium',
     taskId: null,
+    outlineData: null,
+    waitingForOutline: false,
+    previewContent: '',
   }
 
   describe('rendering', () => {

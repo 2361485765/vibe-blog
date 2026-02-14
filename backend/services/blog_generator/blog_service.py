@@ -50,6 +50,10 @@ class BlogService:
         )
         self.generator.compile()
 
+        # 交互式模式：任务等待事件和确认数据
+        self._outline_events: Dict[str, threading.Event] = {}
+        self._outline_confirmations: Dict[str, Dict] = {}
+
     def enhance_topic(self, topic: str, timeout: float = 3.0) -> str:
         """
         使用 LLM 优化用户输入的主题
@@ -86,6 +90,28 @@ class BlogService:
         except Exception as e:
             logger.warning(f"主题优化失败，返回原始主题: {e}")
         return topic
+
+    def confirm_outline(self, task_id: str, action: str = 'accept', outline: dict = None) -> bool:
+        """
+        确认大纲（交互式模式）
+
+        Args:
+            task_id: 任务 ID
+            action: 'accept' 或 'edit'
+            outline: 修改后的大纲（仅 action='edit' 时需要）
+
+        Returns:
+            是否成功
+        """
+        event = self._outline_events.get(task_id)
+        if not event:
+            return False
+        self._outline_confirmations[task_id] = {
+            'action': action,
+            'outline': outline,
+        }
+        event.set()
+        return True
 
     def generate_sync(
         self,
@@ -133,6 +159,7 @@ class BlogService:
         custom_config: dict = None,
         deep_thinking: bool = False,
         background_investigation: bool = True,
+        interactive: bool = False,
         task_manager=None,
         app=None
     ):
@@ -154,6 +181,7 @@ class BlogService:
             custom_config: 自定义配置（仅当 target_length='custom' 时使用）
             deep_thinking: 是否启用深度思考模式
             background_investigation: 是否启用背景调查（搜索）
+            interactive: 是否交互式模式（大纲确认后再写作）
             task_manager: 任务管理器
             app: Flask 应用实例
         """
@@ -180,6 +208,7 @@ class BlogService:
                             custom_config=custom_config,
                             deep_thinking=deep_thinking,
                             background_investigation=background_investigation,
+                            interactive=interactive,
                             task_manager=task_manager
                         )
                 else:
@@ -199,6 +228,7 @@ class BlogService:
                         custom_config=custom_config,
                         deep_thinking=deep_thinking,
                         background_investigation=background_investigation,
+                        interactive=interactive,
                         task_manager=task_manager
                     )
             finally:
@@ -227,6 +257,7 @@ class BlogService:
         custom_config: dict = None,
         deep_thinking: bool = False,
         background_investigation: bool = True,
+        interactive: bool = False,
         task_manager=None
     ):
         """
@@ -479,9 +510,39 @@ class BlogService:
                                     'narrative_mode': outline.get('narrative_mode', ''),
                                     'narrative_flow': outline.get('narrative_flow', {}),
                                     'sections_narrative_roles': [s.get('narrative_role', '') for s in sections],
-                                    'message': f'大纲生成完成: {outline.get("title", "")} ({len(sections)} 章节)'
+                                    'message': f'大纲生成完成: {outline.get("title", "")} ({len(sections)} 章节)',
+                                    'interactive': interactive,
                                 }
                             })
+
+                            # 交互式模式：暂停等待用户确认大纲
+                            if interactive:
+                                task_manager.send_event(task_id, 'outline_ready', {
+                                    'title': outline.get('title', ''),
+                                    'sections': sections,
+                                    'sections_titles': [s.get('title', '') for s in sections],
+                                })
+                                wait_event = threading.Event()
+                                self._outline_events[task_id] = wait_event
+                                logger.info(f"交互式模式：等待用户确认大纲 [{task_id}]")
+
+                                confirmed = wait_event.wait(timeout=600)  # 10 分钟超时
+                                del self._outline_events[task_id]
+
+                                if not confirmed:
+                                    logger.info(f"大纲确认超时，自动继续 [{task_id}]")
+                                    task_manager.send_event(task_id, 'progress', {
+                                        'stage': 'outline_timeout',
+                                        'message': '大纲确认超时，自动继续写作'
+                                    })
+                                else:
+                                    confirmation = self._outline_confirmations.pop(task_id, {})
+                                    action = confirmation.get('action', 'accept')
+                                    task_manager.send_event(task_id, 'progress', {
+                                        'stage': 'outline_confirmed',
+                                        'message': '大纲已确认，开始写作' if action == 'accept' else '大纲已修改，重新规划'
+                                    })
+                                    # TODO: action='edit' 时用修改后的大纲替换 state
                         
                         elif node_name == 'writer' and state.get('sections'):
                             # 章节撰写进度

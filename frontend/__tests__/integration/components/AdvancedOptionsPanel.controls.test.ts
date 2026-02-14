@@ -14,6 +14,7 @@ const baseProps = {
   videoAspectRatio: '16:9',
   deepThinking: false,
   backgroundInvestigation: true,
+  interactive: false,
   customConfig: {
     sectionsCount: 4,
     imagesCount: 4,

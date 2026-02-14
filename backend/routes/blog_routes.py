@@ -263,6 +263,7 @@ def generate_blog():
         custom_config = data.get('custom_config', None)
         deep_thinking = data.get('deep_thinking', False)
         background_investigation = data.get('background_investigation', True)
+        interactive = data.get('interactive', False)
 
         if target_length == 'custom':
             if not custom_config:
@@ -317,6 +318,7 @@ def generate_blog():
             custom_config=custom_config,
             deep_thinking=deep_thinking,
             background_investigation=background_investigation,
+            interactive=interactive,
             task_manager=task_manager,
             app=current_app._get_current_object()
         )
@@ -454,4 +456,30 @@ def enhance_topic():
 
     except Exception as e:
         logger.error(f"主题优化失败: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@blog_bp.route('/api/tasks/<task_id>/confirm-outline', methods=['POST'])
+def confirm_outline(task_id):
+    """确认大纲（交互式模式）"""
+    try:
+        data = request.get_json() or {}
+        action = data.get('action', 'accept')
+        outline = data.get('outline', None)
+
+        if action not in ('accept', 'edit'):
+            return jsonify({'success': False, 'error': 'action 必须是 accept 或 edit'}), 400
+
+        blog_service = get_blog_service()
+        if not blog_service:
+            return jsonify({'success': False, 'error': '博客生成服务不可用'}), 500
+
+        success = blog_service.confirm_outline(task_id, action=action, outline=outline)
+        if not success:
+            return jsonify({'success': False, 'error': '任务不存在或未在等待大纲确认'}), 404
+
+        return jsonify({'success': True, 'message': '大纲已确认'})
+
+    except Exception as e:
+        logger.error(f"大纲确认失败: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500

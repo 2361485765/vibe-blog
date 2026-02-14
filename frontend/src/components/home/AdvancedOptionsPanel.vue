@@ -93,6 +93,16 @@
         </label>
         <span class="option-hint" title="启用后 LLM 会进行更深入的推理，生成时间约增加 2-3 倍">ⓘ</span>
       </div>
+
+      <!-- 交互式生成 -->
+      <div class="option-item checkbox-item">
+        <label>
+          <input type="checkbox" v-model="localInteractive">
+          <MessageSquare :size="14" />
+          <span>交互式生成</span>
+        </label>
+        <span class="option-hint" title="大纲生成后暂停等待确认，可以审核和修改大纲后再开始写作">ⓘ</span>
+      </div>
     </div>
 
     <!-- 自定义配置面板 -->
@@ -145,7 +155,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { FileText, File, Users, Palette, Video, Monitor, Settings, Search, Brain } from 'lucide-vue-next'
+import { FileText, File, Users, Palette, Video, Monitor, Settings, Search, Brain, MessageSquare } from 'lucide-vue-next'
 
 interface CustomConfig {
   sectionsCount: number
@@ -169,6 +179,7 @@ interface Props {
   videoAspectRatio: string
   deepThinking: boolean
   backgroundInvestigation: boolean
+  interactive: boolean
   customConfig: CustomConfig
   imageStyles: ImageStyle[]
   appConfig: {
@@ -185,6 +196,7 @@ interface Emits {
   (e: 'update:videoAspectRatio', value: string): void
   (e: 'update:deepThinking', value: boolean): void
   (e: 'update:backgroundInvestigation', value: boolean): void
+  (e: 'update:interactive', value: boolean): void
   (e: 'update:customConfig', value: CustomConfig): void
 }
 
@@ -230,6 +242,11 @@ const localDeepThinking = computed({
 const localBackgroundInvestigation = computed({
   get: () => props.backgroundInvestigation,
   set: (value) => emit('update:backgroundInvestigation', value)
+})
+
+const localInteractive = computed({
+  get: () => props.interactive,
+  set: (value) => emit('update:interactive', value)
 })
 
 const localCustomConfig = computed({

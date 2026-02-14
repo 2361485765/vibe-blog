@@ -16,6 +16,7 @@ export interface BlogGenerateParams {
   video_aspect_ratio?: string
   deep_thinking?: boolean
   background_investigation?: boolean
+  interactive?: boolean
   custom_config?: {
     sections_count?: number
     images_count?: number
@@ -65,6 +66,16 @@ export async function enhanceTopic(topic: string): Promise<{ success: boolean; e
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ topic })
+  })
+  return response.json()
+}
+
+// 确认大纲（交互式模式）
+export async function confirmOutline(taskId: string, action: 'accept' | 'edit' = 'accept', outline?: any): Promise<{ success: boolean; error?: string }> {
+  const response = await fetch(`${API_BASE}/api/tasks/${taskId}/confirm-outline`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, outline })
   })
   return response.json()
 }

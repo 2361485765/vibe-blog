@@ -42,6 +42,7 @@
                       v-model:video-aspect-ratio="videoAspectRatio"
                       v-model:deep-thinking="deepThinking"
                       v-model:background-investigation="backgroundInvestigation"
+                      v-model:interactive="interactive"
                       v-model:custom-config="customConfig"
                       :image-styles="imageStyles"
                       :app-config="appConfig"
@@ -110,9 +111,13 @@
       :article-type="articleType"
       :target-length="targetLength"
       :task-id="currentTaskId"
+      :outline-data="outlineData"
+      :waiting-for-outline="waitingForOutline"
+      :preview-content="previewContent"
       @toggle="toggleTerminal"
       @close="closeProgress"
       @stop="stopGeneration"
+      @confirm-outline="handleConfirmOutline"
     />
 
     <!-- 发布弹窗 -->
@@ -223,6 +228,7 @@ const generateCoverVideo = ref(false)
 const videoAspectRatio = ref('16:9')
 const deepThinking = ref(false)
 const backgroundInvestigation = ref(true)
+const interactive = ref(false)
 const imageStyles = ref<Array<{ id: string; name: string; icon: string }>>([
   { id: 'cartoon', name: '默认风格', icon: '🎨' }
 ])
@@ -251,6 +257,11 @@ const showProgress = ref(false)
 const terminalExpanded = ref(true)
 const currentTaskId = ref<string | null>(null)
 let eventSource: EventSource | null = null
+
+// ========== 交互式模式状态 ==========
+const outlineData = ref<{ title: string; sections_titles: string[]; sections?: any[] } | null>(null)
+const waitingForOutline = ref(false)
+const previewContent = ref('')
 
 // ========== 进度面板 ==========
 interface ProgressItem {
@@ -383,6 +394,21 @@ const handleEnhanceTopic = async () => {
   }
 }
 
+// ========== 大纲确认（交互式模式） ==========
+const handleConfirmOutline = async (action: string) => {
+  if (!currentTaskId.value) return
+  waitingForOutline.value = false
+  try {
+    const data = await api.confirmOutline(currentTaskId.value, action as 'accept' | 'edit')
+    if (data.success) {
+      addProgressItem(action === 'accept' ? '✓ 大纲已确认，开始写作' : '✓ 大纲已修改，重新规划', 'success')
+      progressText.value = '写作中...'
+    }
+  } catch (error: any) {
+    addProgressItem(`✗ 大纲确认失败: ${error.message}`, 'error')
+  }
+}
+
 // ========== 生成博客 ==========
 const handleGenerate = async () => {
   if (!topic.value.trim() || isLoading.value) return
@@ -391,6 +417,9 @@ const handleGenerate = async () => {
   showProgress.value = true
   progressItems.value = []
   statusBadge.value = '准备中'
+  outlineData.value = null
+  waitingForOutline.value = false
+  previewContent.value = ''
 
   const isStorybook = articleType.value === 'storybook'
   const isMini = targetLength.value === 'mini'
@@ -428,6 +457,7 @@ const handleGenerate = async () => {
         video_aspect_ratio: videoAspectRatio.value,
         deep_thinking: deepThinking.value,
         background_investigation: backgroundInvestigation.value,
+        interactive: interactive.value,
       }
 
       if (targetLength.value === 'custom') {
@@ -458,7 +488,19 @@ const handleGenerate = async () => {
   }
 }
 
+// 流式预览节流（100ms）
+let accumulatedPreview = ''
+let previewTimer: ReturnType<typeof setTimeout> | null = null
+const throttledUpdatePreview = (content: string) => {
+  if (previewTimer) return
+  previewTimer = setTimeout(() => {
+    previewContent.value = content
+    previewTimer = null
+  }, 100)
+}
+
 const connectSSE = (taskId: string) => {
+  accumulatedPreview = ''
   eventSource = api.createTaskStream(taskId)
 
   eventSource.addEventListener('connected', () => {
@@ -490,6 +532,28 @@ const connectSSE = (taskId: string) => {
   eventSource.addEventListener('stream', (e: MessageEvent) => {
     const d = JSON.parse(e.data)
     if (d.stage === 'outline') updateStreamItem(d.accumulated)
+  })
+
+  // 交互式模式：大纲待确认
+  eventSource.addEventListener('outline_ready', (e: MessageEvent) => {
+    const d = JSON.parse(e.data)
+    outlineData.value = {
+      title: d.title || '',
+      sections_titles: d.sections_titles || [],
+      sections: d.sections || [],
+    }
+    waitingForOutline.value = true
+    addProgressItem('📋 大纲已生成，等待确认...', 'info')
+    progressText.value = '等待大纲确认'
+  })
+
+  // 流式写作内容（两种模式都有）
+  eventSource.addEventListener('writing_chunk', (e: MessageEvent) => {
+    const d = JSON.parse(e.data)
+    if (d.delta) {
+      accumulatedPreview += d.delta
+      throttledUpdatePreview(accumulatedPreview)
+    }
   })
 
   eventSource.addEventListener('result', (e: MessageEvent) => {

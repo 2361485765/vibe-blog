@@ -35,8 +35,28 @@
       class="progress-content"
       ref="progressContentRef"
     >
-      <!-- 日志内容区 -->
-      <div class="progress-logs-container" ref="progressBodyRef" style="contain: content;">
+      <!-- Tab 栏 -->
+      <div class="progress-tabs">
+        <button
+          class="progress-tab"
+          :class="{ active: activeTab === 'logs' }"
+          @click="activeTab = 'logs'"
+        >
+          活动日志
+        </button>
+        <span class="progress-tab-divider">│</span>
+        <button
+          class="progress-tab"
+          :class="{ active: activeTab === 'preview', disabled: !previewContent }"
+          :disabled="!previewContent"
+          @click="previewContent && (activeTab = 'preview')"
+        >
+          文章预览
+        </button>
+      </div>
+
+      <!-- 活动日志 Tab -->
+      <div v-show="activeTab === 'logs'" class="progress-logs-container" ref="progressBodyRef" style="contain: content;">
         <!-- 任务启动信息 -->
         <div class="progress-task-header">
           <span class="progress-prompt">❯</span>
@@ -46,6 +66,40 @@
           <span class="progress-arg">--length</span>
           <span class="progress-value">{{ targetLength }}</span>
           <span v-if="taskId" class="progress-task-id">{{ taskId }}</span>
+        </div>
+
+        <!-- 大纲审批卡片（交互式模式） -->
+        <div v-if="outlineData && waitingForOutline" class="outline-approval-card">
+          <div class="outline-card-header">
+            <span class="outline-card-title">📋 {{ outlineData.title }}</span>
+            <span class="outline-card-badge">待确认</span>
+          </div>
+          <div class="outline-card-sections">
+            <div
+              v-for="(title, i) in outlineData.sections_titles"
+              :key="i"
+              class="outline-section-item"
+            >
+              <span class="outline-section-num">{{ i + 1 }}.</span>
+              <span class="outline-section-title">{{ title }}</span>
+            </div>
+          </div>
+          <div class="outline-card-actions">
+            <span class="outline-prompt">?</span>
+            <span class="outline-hint">confirm outline</span>
+            <button class="outline-btn outline-btn-accept" @click="$emit('confirmOutline', 'accept')">
+              (Y) 开始写作
+            </button>
+            <button class="outline-btn outline-btn-edit" @click="$emit('confirmOutline', 'edit')">
+              (e) 修改
+            </button>
+          </div>
+        </div>
+
+        <!-- 大纲已确认状态 -->
+        <div v-else-if="outlineData && !waitingForOutline" class="outline-confirmed-card">
+          <span class="outline-confirmed-icon">✓</span>
+          <span class="outline-confirmed-text">大纲已确认: {{ outlineData.title }}</span>
         </div>
 
         <!-- 进度日志 -->
@@ -74,6 +128,12 @@
           </div>
         </div>
       </div>
+
+      <!-- 文章预览 Tab -->
+      <div v-show="activeTab === 'preview'" class="progress-preview-container">
+        <div v-if="previewContent" class="progress-preview-content" v-html="previewContent"></div>
+        <div v-else class="progress-preview-empty">暂无预览内容</div>
+      </div>
     </div>
   </div>
 </template>
@@ -91,6 +151,12 @@ interface ProgressItem {
   detail?: string
 }
 
+interface OutlineData {
+  title: string
+  sections_titles: string[]
+  sections?: any[]
+}
+
 interface Props {
   visible: boolean
   expanded: boolean
@@ -101,17 +167,22 @@ interface Props {
   articleType: string
   targetLength: string
   taskId: string | null
+  outlineData: OutlineData | null
+  waitingForOutline: boolean
+  previewContent: string
 }
 
 interface Emits {
   (e: 'toggle'): void
   (e: 'close'): void
   (e: 'stop'): void
+  (e: 'confirmOutline', action: string): void
 }
 
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 
+const activeTab = ref<'logs' | 'preview'>('logs')
 const progressContentRef = ref<HTMLElement | null>(null)
 const progressBodyRef = ref<HTMLElement | null>(null)
 
@@ -284,9 +355,198 @@ const getLogIcon = (type: string) => {
 
 /* 展开的日志内容 */
 .progress-content {
-  max-height: 400px;
+  max-height: 440px;
   overflow: hidden;
   border-top: 1px solid var(--color-border);
+}
+
+/* Tab 栏 */
+.progress-tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-md);
+  background: var(--color-bg-elevated);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.progress-tab {
+  padding: var(--space-xs) var(--space-sm);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: var(--transition-all);
+}
+
+.progress-tab:hover:not(.disabled) {
+  color: var(--color-text-primary);
+  background: var(--color-bg-input);
+}
+
+.progress-tab.active {
+  color: var(--color-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+.progress-tab.disabled {
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.progress-tab-divider {
+  color: var(--color-border);
+  font-size: var(--font-size-xs);
+  user-select: none;
+}
+
+/* 大纲审批卡片 */
+.outline-approval-card {
+  margin-bottom: var(--space-md);
+  padding: var(--space-md);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-primary-light);
+  border-radius: var(--radius-md);
+}
+
+.outline-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-sm);
+}
+
+.outline-card-title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+
+.outline-card-badge {
+  font-size: var(--font-size-xs);
+  padding: 2px var(--space-sm);
+  background: var(--color-warning-light);
+  color: var(--color-warning);
+  border-radius: var(--radius-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.outline-card-sections {
+  margin-bottom: var(--space-md);
+}
+
+.outline-section-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+  padding: 2px 0;
+  font-size: var(--font-size-xs);
+}
+
+.outline-section-num {
+  color: var(--color-text-muted);
+  min-width: 20px;
+}
+
+.outline-section-title {
+  color: var(--color-terminal-keyword, var(--color-primary));
+}
+
+.outline-card-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--color-border);
+  font-size: var(--font-size-xs);
+}
+
+.outline-prompt {
+  color: var(--color-warning);
+  font-weight: var(--font-weight-bold);
+}
+
+.outline-hint {
+  color: var(--color-text-muted);
+}
+
+.outline-btn {
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font-size: var(--font-size-xs);
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: var(--transition-all);
+}
+
+.outline-btn-accept {
+  color: var(--color-success);
+  border-color: var(--color-success);
+}
+
+.outline-btn-accept:hover {
+  background: var(--color-success-light);
+}
+
+.outline-btn-edit {
+  color: var(--color-text-secondary);
+}
+
+.outline-btn-edit:hover {
+  background: var(--color-bg-input);
+}
+
+/* 大纲已确认 */
+.outline-confirmed-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-success-light);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-xs);
+}
+
+.outline-confirmed-icon {
+  color: var(--color-success);
+  font-weight: var(--font-weight-bold);
+}
+
+.outline-confirmed-text {
+  color: var(--color-text-secondary);
+}
+
+/* 文章预览 */
+.progress-preview-container {
+  height: 100%;
+  max-height: 400px;
+  overflow-y: auto;
+  padding: var(--space-lg);
+  background: var(--color-bg-base);
+}
+
+.progress-preview-content {
+  font-family: var(--font-sans, sans-serif);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-relaxed);
+  color: var(--color-text-primary);
+}
+
+.progress-preview-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
 }
 
 .progress-logs-container {
