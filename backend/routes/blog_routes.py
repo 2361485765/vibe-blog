@@ -483,3 +483,33 @@ def confirm_outline(task_id):
     except Exception as e:
         logger.error(f"大纲确认失败: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@blog_bp.route('/api/blog/<blog_id>/evaluate', methods=['POST'])
+def evaluate_article(blog_id):
+    """评估文章质量"""
+    try:
+        from services.db_service import get_db_service
+        db_service = get_db_service()
+        blog = db_service.get_blog(blog_id)
+        if not blog:
+            return jsonify({'success': False, 'error': '文章不存在'}), 404
+
+        blog_service = get_blog_service()
+        if not blog_service:
+            return jsonify({'success': False, 'error': '博客生成服务不可用'}), 500
+
+        content = blog.get('markdown_content', '') or blog.get('content', '')
+        title = blog.get('topic', '') or blog.get('title', '')
+        article_type = blog.get('article_type', '')
+
+        evaluation = blog_service.evaluate_article(content, title=title, article_type=article_type)
+
+        return jsonify({
+            'success': True,
+            'evaluation': evaluation,
+        })
+
+    except Exception as e:
+        logger.error(f"文章评估失败: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500

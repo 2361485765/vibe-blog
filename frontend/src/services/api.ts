@@ -80,6 +80,15 @@ export async function confirmOutline(taskId: string, action: 'accept' | 'edit' =
   return response.json()
 }
 
+// 评估文章质量
+export async function evaluateArticle(blogId: string): Promise<{ success: boolean; evaluation?: any; error?: string }> {
+  const response = await fetch(`${API_BASE}/api/blog/${blogId}/evaluate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  })
+  return response.json()
+}
+
 // 创建 Mini 博客生成任务
 export async function createMiniBlogTask(params: BlogGenerateParams): Promise<{ success: boolean; task_id?: string; error?: string }> {
   const response = await fetch(`${API_BASE}/api/blog/generate/mini`, {

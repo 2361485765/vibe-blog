@@ -113,6 +113,89 @@ class BlogService:
         event.set()
         return True
 
+    def evaluate_article(self, content: str, title: str = '', article_type: str = '') -> Dict[str, Any]:
+        """
+        评估文章质量（基础统计 + LLM 评分）
+
+        Args:
+            content: 文章 Markdown 内容
+            title: 文章标题
+            article_type: 文章类型
+
+        Returns:
+            评估结果字典
+        """
+        import re
+
+        # 基础统计（不依赖 LLM）
+        word_count = len(content)
+        citation_count = len(re.findall(r'\[.*?\]\(https?://.*?\)', content))
+        image_count = len(re.findall(r'!\[.*?\]\(.*?\)', content))
+        code_block_count = len(re.findall(r'```[\s\S]*?```', content))
+
+        base_result = {
+            'word_count': word_count,
+            'citation_count': citation_count,
+            'image_count': image_count,
+            'code_block_count': code_block_count,
+        }
+
+        # LLM 评估
+        try:
+            messages = [
+                {"role": "system", "content": "你是一个专业的文章质量评估专家。请对以下文章进行评估，返回 JSON 格式结果。"},
+                {"role": "user", "content": f"""请评估以下文章的质量，返回严格 JSON 格式：
+
+标题：{title}
+类型：{article_type}
+
+文章内容（前 3000 字）：
+{content[:3000]}
+
+请返回以下 JSON 格式（不要包含 markdown 代码块标记）：
+{{
+  "overall_score": 0-100 的整数,
+  "grade": "A+/A/A-/B+/B/B-/C+/C/C-/D/F 之一",
+  "scores": {{
+    "factual_accuracy": 0-100,
+    "completeness": 0-100,
+    "coherence": 0-100,
+    "relevance": 0-100,
+    "citation_quality": 0-100,
+    "writing_quality": 0-100
+  }},
+  "strengths": ["优点1", "优点2"],
+  "weaknesses": ["不足1"],
+  "suggestions": ["建议1"],
+  "summary": "一句话总结"
+}}"""},
+            ]
+            import json
+            result = self.generator.llm.chat(
+                messages,
+                response_format={"type": "json_object"},
+                caller="evaluate_article"
+            )
+            if result:
+                evaluation = json.loads(result)
+                evaluation.update(base_result)
+                return evaluation
+        except Exception as e:
+            logger.warning(f"LLM 评估失败，降级为基础统计: {e}")
+
+        # 降级结果
+        return {
+            **base_result,
+            'grade': 'N/A',
+            'overall_score': 0,
+            'scores': {
+                'factual_accuracy': 0, 'completeness': 0, 'coherence': 0,
+                'relevance': 0, 'citation_quality': 0, 'writing_quality': 0,
+            },
+            'strengths': [], 'weaknesses': [], 'suggestions': [],
+            'summary': 'LLM 评估不可用，仅提供基础统计',
+        }
+
     def generate_sync(
         self,
         topic: str,
