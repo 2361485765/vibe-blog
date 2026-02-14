@@ -36,6 +36,16 @@
         @keydown.enter.ctrl="handleGenerate"
       ></textarea>
       <button
+        class="enhance-btn"
+        :class="{ enhancing: isEnhancing }"
+        :disabled="isEnhancing || !localTopic.trim() || isLoading"
+        @click="$emit('enhanceTopic')"
+        title="优化主题"
+      >
+        <Wand2 v-if="!isEnhancing" :size="16" />
+        <Loader v-else :size="16" class="enhance-spinner" />
+      </button>
+      <button
         class="code-generate-btn"
         :disabled="isLoading || !localTopic.trim()"
         @click="handleGenerate"
@@ -110,7 +120,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { FileText, FileCheck, Loader, X, Rocket } from 'lucide-vue-next'
+import { FileText, FileCheck, Loader, X, Rocket, Wand2 } from 'lucide-vue-next'
 
 interface UploadedDocument {
   id: string
@@ -125,6 +135,7 @@ interface Props {
   topic: string
   uploadedDocuments: UploadedDocument[]
   isLoading: boolean
+  isEnhancing: boolean
   showAdvancedOptions: boolean
 }
 
@@ -132,6 +143,7 @@ interface Emits {
   (e: 'update:topic', value: string): void
   (e: 'update:showAdvancedOptions', value: boolean): void
   (e: 'generate'): void
+  (e: 'enhanceTopic'): void
   (e: 'fileUpload', files: FileList): void
   (e: 'removeDocument', docId: string): void
 }
@@ -516,6 +528,43 @@ const isSpinningStatus = (status: string) => {
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
+}
+
+/* 魔法棒按钮 */
+.enhance-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: var(--transition-all);
+}
+
+.enhance-btn:hover:not(:disabled) {
+  border-color: var(--color-terminal-keyword);
+  color: var(--color-terminal-keyword);
+  background: var(--color-primary-light);
+}
+
+.enhance-btn:disabled {
+  opacity: var(--opacity-disabled);
+  cursor: not-allowed;
+}
+
+.enhance-btn.enhancing {
+  border-color: var(--color-terminal-keyword);
+  color: var(--color-terminal-keyword);
+}
+
+.enhance-spinner {
+  animation: spin 1s linear infinite;
 }
 
 .code-generate-btn {

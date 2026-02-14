@@ -57,6 +57,16 @@ export async function createBlogTask(params: BlogGenerateParams): Promise<{ succ
   return response.json()
 }
 
+// 优化主题（Prompt 增强）
+export async function enhanceTopic(topic: string): Promise<{ success: boolean; enhanced_topic?: string; error?: string }> {
+  const response = await fetch(`${API_BASE}/api/blog/enhance-topic`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ topic })
+  })
+  return response.json()
+}
+
 // 创建 Mini 博客生成任务
 export async function createMiniBlogTask(params: BlogGenerateParams): Promise<{ success: boolean; task_id?: string; error?: string }> {
   const response = await fetch(`${API_BASE}/api/blog/generate/mini`, {

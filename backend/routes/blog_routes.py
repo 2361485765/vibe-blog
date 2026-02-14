@@ -423,3 +423,31 @@ def generate_blog_sync():
     except Exception as e:
         logger.error(f"博客生成失败: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@blog_bp.route('/api/blog/enhance-topic', methods=['POST'])
+def enhance_topic():
+    """优化用户输入的主题（Prompt 增强）"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': '请提供 JSON 数据'}), 400
+
+        topic = data.get('topic', '').strip()
+        if not topic:
+            return jsonify({'success': False, 'error': '请提供 topic 参数'}), 400
+
+        blog_service = get_blog_service()
+        if not blog_service:
+            return jsonify({'success': False, 'error': '博客生成服务不可用'}), 500
+
+        enhanced = blog_service.enhance_topic(topic)
+
+        return jsonify({
+            'success': True,
+            'enhanced_topic': enhanced or topic,
+        })
+
+    except Exception as e:
+        logger.error(f"主题优化失败: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500

@@ -24,7 +24,9 @@
                   v-model:show-advanced-options="showAdvancedOptions"
                   :uploaded-documents="uploadedDocuments"
                   :is-loading="isLoading"
+                  :is-enhancing="isEnhancing"
                   @generate="handleGenerate"
+                  @enhance-topic="handleEnhanceTopic"
                   @file-upload="handleFileUpload"
                   @remove-document="removeDocument"
                 />
@@ -240,6 +242,7 @@ const uploadedDocuments = ref<UploadedDocument[]>([])
 
 // ========== 生成状态 ==========
 const isLoading = ref(false)
+const isEnhancing = ref(false)
 const showProgress = ref(false)
 const terminalExpanded = ref(true)
 const currentTaskId = ref<string | null>(null)
@@ -358,6 +361,22 @@ const removeDocument = (docId: string) => {
 
 const getReadyDocumentIds = () => {
   return uploadedDocuments.value.filter(d => d.status === 'ready').map(d => d.id)
+}
+
+// ========== 主题优化（Prompt 增强） ==========
+const handleEnhanceTopic = async () => {
+  if (!topic.value.trim() || isEnhancing.value || isLoading.value) return
+  isEnhancing.value = true
+  try {
+    const data = await api.enhanceTopic(topic.value)
+    if (data.success && data.enhanced_topic) {
+      topic.value = data.enhanced_topic
+    }
+  } catch (error: any) {
+    console.error('主题优化失败:', error)
+  } finally {
+    isEnhancing.value = false
+  }
 }
 
 // ========== 生成博客 ==========

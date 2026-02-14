@@ -49,7 +49,44 @@ class BlogService:
             knowledge_service=knowledge_service
         )
         self.generator.compile()
-    
+
+    def enhance_topic(self, topic: str, timeout: float = 3.0) -> str:
+        """
+        使用 LLM 优化用户输入的主题
+
+        Args:
+            topic: 用户原始输入
+            timeout: 超时秒数（超时则返回原始 topic）
+
+        Returns:
+            优化后的主题字符串
+        """
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "你是一个技术博客主题优化助手。用户会给你一个简短的技术主题，"
+                    "请将其优化为一个更具体、更有吸引力的博客标题。\n"
+                    "要求：\n"
+                    "1. 保留用户的核心意图\n"
+                    "2. 补充具体的技术细节或应用场景\n"
+                    "3. 使标题更适合作为一篇深度技术博客的标题\n"
+                    "4. 只返回优化后的标题文本，不要加引号或其他格式"
+                ),
+            },
+            {
+                "role": "user",
+                "content": topic,
+            },
+        ]
+        try:
+            result = self.generator.llm.chat(messages, caller="enhance_topic")
+            if result and result.strip():
+                return result.strip()
+        except Exception as e:
+            logger.warning(f"主题优化失败，返回原始主题: {e}")
+        return topic
+
     def generate_sync(
         self,
         topic: str,
