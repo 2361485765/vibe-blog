@@ -4,7 +4,7 @@
  */
 import { ref, readonly } from 'vue'
 
-export type ExportFormat = 'markdown' | 'html' | 'txt' | 'word'
+export type ExportFormat = 'markdown' | 'html' | 'txt' | 'word' | 'pdf' | 'image'
 
 export function useExport() {
   const isDownloading = ref(false)
@@ -96,6 +96,70 @@ export function useExport() {
   }
 
   /**
+   * 导出 PDF（动态加载 jspdf）
+   */
+  async function exportPdf(content: string, title: string) {
+    const paragraphs = parseMarkdownToParagraphs(content)
+    const { jsPDF } = await import('jspdf')
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+
+    // 尝试加载中文字体，失败则用默认字体
+    try {
+      doc.setFont('helvetica')
+    } catch {
+      // fallback
+    }
+
+    let y = 20
+    const pageHeight = 280
+    const lineHeight = 7
+    const margin = 15
+    const maxWidth = 180
+
+    for (const p of paragraphs) {
+      let fontSize = 11
+      if (p.type === 'h1') fontSize = 18
+      else if (p.type === 'h2') fontSize = 15
+      else if (p.type === 'h3') fontSize = 13
+      else if (p.type === 'list') fontSize = 11
+
+      doc.setFontSize(fontSize)
+      const lines = doc.splitTextToSize(p.text, maxWidth)
+
+      for (const line of lines) {
+        if (y > pageHeight) {
+          doc.addPage()
+          y = 20
+        }
+        doc.text(line, margin, y)
+        y += lineHeight
+      }
+      y += 2 // paragraph spacing
+    }
+
+    doc.save(`${safeFilename(title)}.pdf`)
+  }
+
+  /**
+   * 导出图片（动态加载 html2canvas）
+   */
+  async function exportImage(elementId: string, title: string) {
+    const element = document.getElementById(elementId)
+    if (!element) throw new Error(`Element #${elementId} not found`)
+
+    const html2canvas = (await import('html2canvas')).default
+    const canvas = await html2canvas(element, {
+      scale: 2,
+      useCORS: true,
+      windowHeight: element.scrollHeight,
+    })
+
+    canvas.toBlob((blob: Blob | null) => {
+      if (blob) triggerDownload(blob, `${safeFilename(title)}.png`)
+    }, 'image/png')
+  }
+
+  /**
    * 导出 Word（通过后端 API）
    */
   async function exportWord(content: string, title: string) {
@@ -135,6 +199,12 @@ export function useExport() {
         case 'word':
           await exportWord(content, title)
           break
+        case 'pdf':
+          await exportPdf(content, title)
+          break
+        case 'image':
+          await exportImage('preview-content', title)
+          break
       }
     } finally {
       isDownloading.value = false
@@ -148,5 +218,50 @@ export function useExport() {
     exportHtml,
     exportTxt,
     exportWord,
+    exportPdf,
+    exportImage,
   }
+}
+
+/**
+ * Markdown → 段落数组（供 PDF 导出使用）
+ */
+export interface MarkdownParagraph {
+  type: 'h1' | 'h2' | 'h3' | 'list' | 'paragraph'
+  text: string
+}
+
+export function parseMarkdownToParagraphs(markdown: string): MarkdownParagraph[] {
+  const lines = markdown.split('\n')
+  const result: MarkdownParagraph[] = []
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+
+    if (trimmed.startsWith('### ')) {
+      result.push({ type: 'h3', text: trimmed.slice(4) })
+    } else if (trimmed.startsWith('## ')) {
+      result.push({ type: 'h2', text: trimmed.slice(3) })
+    } else if (trimmed.startsWith('# ')) {
+      result.push({ type: 'h1', text: trimmed.slice(2) })
+    } else if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+      result.push({ type: 'list', text: `• ${trimmed.slice(2)}` })
+    } else {
+      result.push({ type: 'paragraph', text: parseInlineMarkdown(trimmed) })
+    }
+  }
+
+  return result
+}
+
+/**
+ * 解析 Markdown 内联标记为纯文本
+ */
+export function parseInlineMarkdown(text: string): string {
+  return text
+    .replace(/\*\*(.*?)\*\*/g, '$1')       // **粗体**
+    .replace(/\*(.*?)\*/g, '$1')           // *斜体*
+    .replace(/`([^`]+)`/g, '$1')           // `行内代码`
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // [链接](url)
 }

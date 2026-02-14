@@ -31,6 +31,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
+      'jspdf': fileURLToPath(new URL('./__tests__/__mocks__/jspdf.ts', import.meta.url)),
+      'html2canvas': fileURLToPath(new URL('./__tests__/__mocks__/html2canvas.ts', import.meta.url)),
     },
   },
 })

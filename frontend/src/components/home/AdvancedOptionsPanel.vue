@@ -6,7 +6,7 @@
         <span class="option-label">
           <FileText :size="14" /> 文章类型:
         </span>
-        <select v-model="localArticleType">
+        <select v-model="localArticleType" :disabled="isLoading">
           <option value="tutorial">教程型</option>
           <option value="problem-solution">问题解决</option>
           <option value="comparison">对比分析</option>
@@ -19,7 +19,7 @@
         <span class="option-label">
           <File :size="14" /> 文章长度:
         </span>
-        <select v-model="localTargetLength">
+        <select v-model="localTargetLength" :disabled="isLoading">
           <option value="mini">快速 Mini</option>
           <option value="short">短文</option>
           <option value="medium">中等</option>
@@ -33,7 +33,7 @@
         <span class="option-label">
           <Users :size="14" /> 受众适配:
         </span>
-        <select v-model="localAudienceAdaptation">
+        <select v-model="localAudienceAdaptation" :disabled="isLoading">
           <option value="default">默认风格</option>
           <option value="high-school">高中生版</option>
           <option value="children">儿童版</option>
@@ -46,7 +46,7 @@
         <span class="option-label">
           <Palette :size="14" /> 配图风格:
         </span>
-        <select v-model="localImageStyle">
+        <select v-model="localImageStyle" :disabled="isLoading">
           <option v-for="style in imageStyles" :key="style.id" :value="style.id">
             {{ style.icon }} {{ style.name }}
           </option>
@@ -56,7 +56,7 @@
       <!-- 生成封面动画 -->
       <div v-if="appConfig.features?.cover_video" class="option-item checkbox-item">
         <label>
-          <input type="checkbox" v-model="localGenerateCoverVideo">
+          <input type="checkbox" v-model="localGenerateCoverVideo" :disabled="isLoading">
           <Video :size="14" />
           <span>生成封面动画</span>
         </label>
@@ -68,7 +68,7 @@
         <span class="option-label">
           <Monitor :size="14" /> 视频尺寸:
         </span>
-        <select v-model="localVideoAspectRatio">
+        <select v-model="localVideoAspectRatio" :disabled="isLoading">
           <option value="16:9">横屏(16:9)</option>
           <option value="9:16">竖屏(9:16)</option>
         </select>
@@ -77,7 +77,7 @@
       <!-- 背景调查 -->
       <div class="option-item checkbox-item">
         <label>
-          <input type="checkbox" v-model="localBackgroundInvestigation">
+          <input type="checkbox" v-model="localBackgroundInvestigation" :disabled="isLoading">
           <Search :size="14" />
           <span>背景调查</span>
         </label>
@@ -87,7 +87,7 @@
       <!-- 深度思考 -->
       <div class="option-item checkbox-item">
         <label>
-          <input type="checkbox" v-model="localDeepThinking">
+          <input type="checkbox" v-model="localDeepThinking" :disabled="isLoading">
           <Brain :size="14" />
           <span>深度思考</span>
         </label>
@@ -97,7 +97,7 @@
       <!-- 交互式生成 -->
       <div class="option-item checkbox-item">
         <label>
-          <input type="checkbox" v-model="localInteractive">
+          <input type="checkbox" v-model="localInteractive" :disabled="isLoading">
           <MessageSquare :size="14" />
           <span>交互式生成</span>
         </label>
@@ -180,6 +180,7 @@ interface Props {
   deepThinking: boolean
   backgroundInvestigation: boolean
   interactive: boolean
+  isLoading?: boolean
   customConfig: CustomConfig
   imageStyles: ImageStyle[]
   appConfig: {

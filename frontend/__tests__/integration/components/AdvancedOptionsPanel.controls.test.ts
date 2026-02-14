@@ -118,3 +118,33 @@ describe('AdvancedOptionsPanel — interactive mode', () => {
     expect(wrapper.emitted('update:interactive')![0]).toEqual([true])
   })
 })
+
+describe('AdvancedOptionsPanel — isLoading disabled', () => {
+  it('should disable all checkboxes and selects when isLoading is true', () => {
+    const wrapper = mount(AdvancedOptionsPanel, {
+      props: { ...baseProps, isLoading: true },
+    })
+    const checkboxes = wrapper.findAll('input[type="checkbox"]')
+    checkboxes.forEach((cb) => {
+      expect((cb.element as HTMLInputElement).disabled).toBe(true)
+    })
+    const selects = wrapper.findAll('select')
+    selects.forEach((sel) => {
+      expect((sel.element as HTMLSelectElement).disabled).toBe(true)
+    })
+  })
+
+  it('should not disable controls when isLoading is false', () => {
+    const wrapper = mount(AdvancedOptionsPanel, {
+      props: { ...baseProps, isLoading: false },
+    })
+    const checkboxes = wrapper.findAll('input[type="checkbox"]')
+    checkboxes.forEach((cb) => {
+      expect((cb.element as HTMLInputElement).disabled).toBe(false)
+    })
+    const selects = wrapper.findAll('select')
+    selects.forEach((sel) => {
+      expect((sel.element as HTMLSelectElement).disabled).toBe(false)
+    })
+  })
+})

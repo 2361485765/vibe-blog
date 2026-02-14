@@ -452,6 +452,7 @@ def enhance_topic():
         return jsonify({
             'success': True,
             'enhanced_topic': enhanced or topic,
+            'original': topic,
         })
 
     except Exception as e:

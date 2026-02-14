@@ -18,6 +18,20 @@ All notable changes to the Vibe Blog project will be documented in this file.
 - ✨ **ProgressDrawer 搜索/爬取卡片** — 搜索结果卡片（favicon + 域名 + 标题，限 8 条）+ 爬取完成卡片（标题/URL/大小）+ 动画控制（前 6 张有动画，延迟上限 300ms）
 
 ### Changed
+- 🔧 **enhance-topic 响应增加 original 字段** — `blog_routes.py` 返回原始 topic 便于前端对比
+- 🔧 **enhance_topic 3 秒超时保护** — `blog_service.py` 用 `concurrent.futures.ThreadPoolExecutor` + `future.result(timeout=3)` 防止 LLM 阻塞
+- 🔧 **enhance_topic 返回值去除引号/书名号** — `.strip('"\'《》「」')` 清理 LLM 输出格式
+- 🔧 **AdvancedOptionsPanel isLoading disabled** — 所有 select/checkbox 加 `:disabled="isLoading"` 防止生成中修改参数
+- 🔧 **ExportMenu 点击外部关闭菜单** — `onClickOutside` + `document.addEventListener('click')` 实现
+- 🔧 **CitationTooltip Teleport + 移动端隐藏** — 渲染到 body 避免 overflow 裁剪，移动端 `< 768px` 自动隐藏
+- 🔧 **CitationTooltip hover 延迟** — 200ms 延迟显示 + 100ms 延迟隐藏 + keep-visible/request-hide 事件
+- 🔧 **Generate.vue 移动端 Tab 栏** — 活动日志/文章预览 Tab 切换，`< 768px` 自适应
+- 🔧 **Generate.vue 双栏宽度比例** — 左栏 40% / 右栏 60%（原为固定 420px）
+- 🔧 **useExport 新增 PDF/Image 导出** — 动态 `import('jspdf')` + `import('html2canvas')` + `windowHeight` 长文章支持
+- 🔧 **Researcher SSE 事件推送** — `search_started`/`search_results`/`crawl_completed` 事件实时推送到前端
+- 🔧 **Writer 流式写作** — `chat_stream` + `writing_chunk` SSE 事件实时推送章节内容
+- 🔧 **大纲编辑确认** — `confirm_outline(action='edit')` 支持修改后大纲替换 state 重新写作
+- 🔧 **任务取消清理** — 取消时清理 `_outline_events`/`_outline_confirmations` 防止线程永久阻塞
 - 🔧 **Home.vue 导航** — 博客/Mini 任务创建成功后跳转到 Generate 页面，绘本任务保持原有 SSE 逻辑
 - 🔧 **vite.config.ts / tsconfig.json** — 添加 `@/` 路径别名
 - 🔧 **env.d.ts** — 添加 `.vue` 模块类型声明
@@ -28,6 +42,16 @@ All notable changes to the Vibe Blog project will be documented in this file.
 - ✅ **AdvancedOptionsPanel interactive 测试** — 2 个新用例（checkbox 渲染 + emit）
 - ✅ **Home.toggles.test.ts** — 2 个新用例（deepThinking/backgroundInvestigation 参数传递到 API 请求体）
 - ✅ **后端 test_blog_api.py** — 新增 deep_thinking/background_investigation/interactive/confirm-outline/Word 导出测试
+- ✅ **Home.enhance.test.ts** — 3 个新用例（enhance-topic API 调用/成功替换/失败处理）
+- ✅ **citationMatcher.test.ts** — 引用匹配工具函数测试
+- ✅ **inlineParser.test.ts** — 4 个新用例（粗体/斜体/行内代码/链接解析）
+- ✅ **markdownParser.test.ts** — 5 个新用例（h1/h2/h3/列表/段落+空行跳过）
+- ✅ **useExport.test.ts** — 4 个新用例（Markdown/HTML/TXT 导出 + isDownloading 状态锁）
+- ✅ **throttle.test.ts** — 2 个新用例（100ms 节流 + 窗口内中间调用丢弃）
+- ✅ **sse-events.test.ts** — 5 个新用例（SSE 事件解析）
+- ✅ **useTaskStream.test.ts** — SSE 连接流程测试
+- ✅ **AdvancedOptionsPanel isLoading 测试** — 2 个新用例（disabled/not disabled）
+- ✅ **全量测试** — 26 文件 / 362 用例全部通过
 
 ---
 

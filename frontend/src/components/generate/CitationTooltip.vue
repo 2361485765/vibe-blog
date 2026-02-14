@@ -1,23 +1,29 @@
 <template>
-  <div
-    v-if="visible && citation"
-    class="citation-tooltip"
-    :style="{ top: position.top + 'px', left: position.left + 'px' }"
-  >
-    <div class="citation-index">[{{ index }}]</div>
-    <div class="citation-domain">{{ citation.domain }}</div>
-    <div class="citation-title">{{ citation.title }}</div>
-    <div class="citation-snippet">{{ citation.snippet }}</div>
-    <div class="citation-footer">
-      <span v-if="citation.relevance" class="citation-relevance">
-        ⭐ 相关性: {{ citation.relevance }}%
-      </span>
-      <a :href="citation.url" target="_blank" class="citation-link">🔗 打开原文</a>
+  <Teleport to="body">
+    <div
+      v-if="visible && citation && !isMobile"
+      class="citation-tooltip"
+      :style="{ top: position.top + 'px', left: position.left + 'px' }"
+      @mouseenter="onTooltipEnter"
+      @mouseleave="onTooltipLeave"
+    >
+      <div class="citation-index">[{{ index }}]</div>
+      <div class="citation-domain">{{ citation.domain }}</div>
+      <div class="citation-title">{{ citation.title }}</div>
+      <div class="citation-snippet">{{ citation.snippet }}</div>
+      <div class="citation-footer">
+        <span v-if="citation.relevance" class="citation-relevance">
+          ⭐ 相关性: {{ citation.relevance }}%
+        </span>
+        <a :href="citation.url" target="_blank" class="citation-link">🔗 打开原文</a>
+      </div>
     </div>
-  </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+
 interface Citation {
   url: string
   title: string
@@ -34,6 +40,28 @@ interface Props {
 }
 
 defineProps<Props>()
+const emit = defineEmits<{
+  (e: 'keep-visible'): void
+  (e: 'request-hide'): void
+}>()
+
+const windowWidth = ref(window.innerWidth)
+const isMobile = computed(() => windowWidth.value < 768)
+
+function onResize() {
+  windowWidth.value = window.innerWidth
+}
+
+onMounted(() => window.addEventListener('resize', onResize))
+onUnmounted(() => window.removeEventListener('resize', onResize))
+
+function onTooltipEnter() {
+  emit('keep-visible')
+}
+
+function onTooltipLeave() {
+  emit('request-hide')
+}
 </script>
 
 <style scoped>

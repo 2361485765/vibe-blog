@@ -1,5 +1,5 @@
 <template>
-  <div class="export-wrapper">
+  <div class="export-wrapper" ref="wrapperRef">
     <button
       class="export-trigger"
       :class="{ downloading: isDownloading }"
@@ -27,7 +27,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 
 interface Props {
   content: string
@@ -46,6 +46,16 @@ const emit = defineEmits<{
 }>()
 
 const showMenu = ref(props.menuOpen)
+const wrapperRef = ref<HTMLElement | null>(null)
+
+const onClickOutside = (e: MouseEvent) => {
+  if (wrapperRef.value && !wrapperRef.value.contains(e.target as Node)) {
+    showMenu.value = false
+  }
+}
+
+onMounted(() => document.addEventListener('click', onClickOutside, true))
+onUnmounted(() => document.removeEventListener('click', onClickOutside, true))
 
 const formats = [
   { id: 'markdown', label: 'Markdown', ext: '.md' },

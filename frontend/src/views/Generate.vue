@@ -33,10 +33,23 @@
       </div>
     </div>
 
+    <!-- 移动端 Tab 栏 -->
+    <div v-if="isMobile" class="mobile-tabs">
+      <button
+        class="mobile-tab" :class="{ active: mobileTab === 'activity' }"
+        @click="mobileTab = 'activity'"
+      >活动日志</button>
+      <button
+        class="mobile-tab" :class="{ active: mobileTab === 'preview' }"
+        @click="mobileTab = 'preview'"
+        :disabled="!previewContent"
+      >文章预览</button>
+    </div>
+
     <!-- 双栏主体 -->
     <div class="generate-main">
       <!-- 左栏：活动日志 -->
-      <div class="generate-left">
+      <div class="generate-left" v-show="!isMobile || mobileTab === 'activity'">
         <ProgressDrawer
           :visible="true"
           :expanded="true"
@@ -58,11 +71,16 @@
       </div>
 
       <!-- 右栏：文章预览 -->
-      <div class="generate-right">
-        <div v-if="previewContent" ref="previewRef" class="preview-panel" v-html="renderedHtml"></div>
+      <div class="generate-right" v-show="!isMobile || mobileTab === 'preview'">
+        <div v-if="previewContent" id="preview-content" ref="previewRef" class="preview-panel" v-html="renderedHtml"></div>
         <div v-else class="preview-empty">
           <div class="preview-empty-icon">📝</div>
           <div class="preview-empty-text">文章内容将在写作阶段实时显示</div>
+        </div>
+        <div v-if="completedBlogId && !isLoading" class="preview-footer">
+          <button class="toolbar-btn view-btn" @click="router.push(`/blog/${completedBlogId}`)">
+            📖 查看文章
+          </button>
         </div>
       </div>
     </div>
@@ -101,6 +119,12 @@ import CitationTooltip from '@/components/generate/CitationTooltip.vue'
 
 const route = useRoute()
 const router = useRouter()
+
+// 移动端响应式
+const windowWidth = ref(window.innerWidth)
+const isMobile = computed(() => windowWidth.value < 768)
+const mobileTab = ref<'activity' | 'preview'>('activity')
+function onResize() { windowWidth.value = window.innerWidth }
 
 // composables
 const {
@@ -170,21 +194,38 @@ const handleEvaluate = async () => {
   }
 }
 
-// 引用悬浮卡片：扫描预览区域的链接
+// 引用悬浮卡片：hover 延迟 200ms 显示，离开 100ms 消失
+let hoverShowTimer: ReturnType<typeof setTimeout> | null = null
+let hoverHideTimer: ReturnType<typeof setTimeout> | null = null
+
+const showTooltip = (citation: Citation, index: number, rect: DOMRect) => {
+  if (hoverHideTimer) { clearTimeout(hoverHideTimer); hoverHideTimer = null }
+  hoverShowTimer = setTimeout(() => {
+    tooltipVisible.value = true
+    tooltipCitation.value = citation
+    tooltipIndex.value = index
+    tooltipPosition.value = { top: rect.bottom + 8, left: rect.left }
+  }, 200)
+}
+
+const hideTooltip = () => {
+  if (hoverShowTimer) { clearTimeout(hoverShowTimer); hoverShowTimer = null }
+  hoverHideTimer = setTimeout(() => {
+    tooltipVisible.value = false
+  }, 100)
+}
+
 const setupCitationHover = () => {
   if (!previewRef.value || !citations.value.length) return
 
   const matches = scanCitationLinks(previewRef.value, citations.value)
   matches.forEach(({ element, citation, index }) => {
-    element.addEventListener('mouseenter', (e: MouseEvent) => {
+    element.addEventListener('mouseenter', () => {
       const rect = element.getBoundingClientRect()
-      tooltipVisible.value = true
-      tooltipCitation.value = citation
-      tooltipIndex.value = index
-      tooltipPosition.value = { top: rect.bottom + 8, left: rect.left }
+      showTooltip(citation, index, rect)
     })
     element.addEventListener('mouseleave', () => {
-      tooltipVisible.value = false
+      hideTooltip()
     })
   })
 }
@@ -201,13 +242,13 @@ const goBack = () => {
 
 // 页面加载时连接 SSE
 onMounted(() => {
+  window.addEventListener('resize', onResize)
   const taskId = route.params.taskId as string
   if (taskId) {
     currentTaskId.value = taskId
     isLoading.value = true
     addProgressItem(`任务 ${taskId} 已连接`)
     connectSSE(taskId, (data) => {
-      // 完成后可跳转详情
       if (data.id) {
         addProgressItem(`文章已生成，可点击查看详情`)
       }
@@ -216,7 +257,10 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  window.removeEventListener('resize', onResize)
   tooltipVisible.value = false
+  if (hoverShowTimer) clearTimeout(hoverShowTimer)
+  if (hoverHideTimer) clearTimeout(hoverHideTimer)
 })
 </script>
 
@@ -305,16 +349,70 @@ onUnmounted(() => {
 }
 
 .generate-left {
-  width: 420px;
+  width: 40%;
   min-width: 320px;
   border-right: 1px solid var(--color-border, #222);
   overflow-y: auto;
 }
 
 .generate-right {
+  width: 60%;
   flex: 1;
   overflow-y: auto;
   padding: var(--space-lg, 24px);
+}
+
+.mobile-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--color-border, #222);
+  background: var(--color-bg-elevated, #111);
+  flex-shrink: 0;
+}
+
+.mobile-tab {
+  flex: 1;
+  padding: var(--space-sm, 8px);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-muted, #666);
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-size-xs, 12px);
+  cursor: pointer;
+}
+
+.mobile-tab.active {
+  color: var(--color-primary, #4ade80);
+  border-bottom-color: var(--color-primary, #4ade80);
+}
+
+.mobile-tab:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.preview-footer {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-lg, 24px);
+}
+
+.view-btn {
+  color: var(--color-primary, #4ade80);
+  border-color: var(--color-primary, #4ade80);
+  font-size: var(--font-size-sm, 14px);
+  padding: var(--space-sm, 8px) var(--space-lg, 24px);
+}
+
+@media (max-width: 767px) {
+  .generate-left,
+  .generate-right {
+    width: 100%;
+    min-width: 0;
+  }
+  .generate-main {
+    flex-direction: column;
+  }
 }
 
 .preview-panel {

@@ -84,9 +84,15 @@ class BlogService:
             },
         ]
         try:
-            result = self.generator.llm.chat(messages, caller="enhance_topic")
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(self.generator.llm.chat, messages, None, "enhance_topic")
+                result = future.result(timeout=timeout)
             if result and result.strip():
-                return result.strip()
+                enhanced = result.strip().strip('"\'《》「」')
+                return enhanced
+        except concurrent.futures.TimeoutError:
+            logger.warning(f"主题优化超时({timeout}s)，返回原始主题")
         except Exception as e:
             logger.warning(f"主题优化失败，返回原始主题: {e}")
         return topic
@@ -448,6 +454,24 @@ class BlogService:
             except Exception:
                 pass
 
+        # 注入 task_manager 到 researcher、search_service、writer（101.03 SSE 事件推送）
+        if task_manager:
+            try:
+                researcher = self.generator.researcher
+                researcher.task_manager = task_manager
+                researcher.task_id = task_id
+                if researcher.search_service:
+                    researcher.search_service.task_manager = task_manager
+                    researcher.search_service.task_id = task_id
+            except Exception:
+                pass
+            try:
+                writer = self.generator.writer
+                writer.task_manager = task_manager
+                writer.task_id = task_id
+            except Exception:
+                pass
+
         # 创建 Token 追踪器（37.31）
         token_tracker = None
         try:
@@ -590,6 +614,11 @@ class BlogService:
                 # 检查任务是否被取消
                 if task_manager and task_manager.is_cancelled(task_id):
                     logger.info(f"任务已取消，停止生成: {task_id}")
+                    # 清理交互式模式等待事件，防止线程永久阻塞
+                    outline_event = self._outline_events.pop(task_id, None)
+                    if outline_event:
+                        outline_event.set()
+                    self._outline_confirmations.pop(task_id, None)
                     task_manager.send_event(task_id, 'cancelled', {
                         'task_id': task_id,
                         'message': '任务已被用户取消'
@@ -712,11 +741,32 @@ class BlogService:
                                 else:
                                     confirmation = self._outline_confirmations.pop(task_id, {})
                                     action = confirmation.get('action', 'accept')
-                                    task_manager.send_event(task_id, 'progress', {
-                                        'stage': 'outline_confirmed',
-                                        'message': '大纲已确认，开始写作' if action == 'accept' else '大纲已修改，重新规划'
-                                    })
-                                    # TODO: action='edit' 时用修改后的大纲替换 state
+                                    if action == 'edit' and confirmation.get('outline'):
+                                        # 用修改后的大纲替换 state
+                                        edited_outline = confirmation['outline']
+                                        state['outline'] = edited_outline
+                                        state['sections'] = []  # 清空已有章节，重新写作
+                                        completed_sections = 0
+                                        task_manager.send_event(task_id, 'progress', {
+                                            'stage': 'outline_edited',
+                                            'message': '大纲已修改，开始写作'
+                                        })
+                                        task_manager.send_event(task_id, 'result', {
+                                            'type': 'outline_complete',
+                                            'data': {
+                                                'title': edited_outline.get('title', ''),
+                                                'sections_count': len(edited_outline.get('sections', [])),
+                                                'sections': edited_outline.get('sections', []),
+                                                'sections_titles': [s.get('title', '') for s in edited_outline.get('sections', [])],
+                                                'message': f'大纲已修改: {edited_outline.get("title", "")}',
+                                                'interactive': interactive,
+                                            }
+                                        })
+                                    else:
+                                        task_manager.send_event(task_id, 'progress', {
+                                            'stage': 'outline_confirmed',
+                                            'message': '大纲已确认，开始写作'
+                                        })
                         
                         elif node_name == 'writer' and state.get('sections'):
                             # 章节撰写进度
