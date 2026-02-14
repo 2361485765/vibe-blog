@@ -494,14 +494,70 @@ const connectSSE = (taskId: string) => {
 
   eventSource.addEventListener('result', (e: MessageEvent) => {
     const d = JSON.parse(e.data)
-    if (d.type === 'researcher_complete') {
-      const data = d.data
-      if (data.document_count > 0 || data.web_count > 0) {
-        addProgressItem(`📊 知识来源: 文档 ${data.document_count} 条, 网络 ${data.web_count} 条`, 'info')
-      }
-      if (data.key_concepts?.length > 0) {
-        addProgressItem(`💡 核心概念: ${data.key_concepts.join(', ')}`, 'success')
-      }
+    const data = d.data || {}
+
+    switch (d.type) {
+      case 'researcher_complete':
+        if (data.document_count > 0 || data.web_count > 0) {
+          addProgressItem(`📊 知识来源: 文档 ${data.document_count} 条, 网络 ${data.web_count} 条`, 'info')
+        }
+        if (data.key_concepts?.length > 0) {
+          addProgressItem(`💡 核心概念: ${data.key_concepts.join(', ')}`, 'success')
+        }
+        break
+
+      case 'outline_complete':
+        if (data.sections_titles?.length > 0) {
+          const titles = data.sections_titles.map((t: string, i: number) => `${i + 1}. ${t}`).join('\n')
+          addProgressItem(`📋 大纲: ${data.title}`, 'success', titles)
+        }
+        break
+
+      case 'section_complete':
+        addProgressItem(`✍️ 章节 ${data.section_index} 完成: ${data.title} (${data.content_length} 字)`, 'success')
+        break
+
+      case 'check_knowledge_complete':
+        if (data.gaps_count > 0) {
+          addProgressItem(`🔎 知识空白: ${data.gaps_count} 个 (搜索 ${data.search_count}/${data.max_search_count})`, 'info',
+            data.gaps?.join('\n'))
+        }
+        break
+
+      case 'refine_search_complete':
+        addProgressItem(`🌐 第 ${data.round} 轮搜索: 获取 ${data.results_count} 条结果`, 'info')
+        break
+
+      case 'enhance_knowledge_complete':
+        addProgressItem(`📚 内容增强完成: 累积知识 ${data.knowledge_length} 字`, 'success')
+        break
+
+      case 'questioner_complete':
+        addProgressItem(data.needs_deepen ? '❓ 内容需要深化' : '✅ 内容深度检查通过',
+          data.needs_deepen ? 'info' : 'success')
+        break
+
+      case 'coder_complete':
+        addProgressItem(`💻 代码示例: ${data.code_blocks_count} 个代码块`, 'success')
+        break
+
+      case 'artist_complete':
+        addProgressItem(`🎨 配图描述: ${data.images_count} 张`, 'success')
+        break
+
+      case 'reviewer_complete':
+        addProgressItem(`✅ 质量审核: ${data.score} 分 ${data.passed ? '通过' : '需修订'}`,
+          data.passed ? 'success' : 'warning')
+        break
+
+      case 'assembler_complete':
+        addProgressItem(`📦 文档组装完成: ${data.markdown_length} 字`, 'success')
+        break
+
+      default:
+        if (data.message) {
+          addProgressItem(`📌 ${data.message}`, 'info')
+        }
     }
   })
 
