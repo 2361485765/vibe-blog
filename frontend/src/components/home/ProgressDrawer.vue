@@ -94,7 +94,7 @@
           <CollapsibleContent class="mt-3">
             <Card :class="isLoading && !outlineData ? 'border-primary/20 bg-primary/5' : 'border-border'">
               <CardContent class="p-0">
-                <div class="flex h-40 w-full overflow-y-auto">
+                <div ref="thoughtScrollRef" class="flex h-40 w-full overflow-y-auto">
                   <div class="w-full px-4 py-3">
                     <div
                       v-for="(log, i) in thoughtLogs"
@@ -153,51 +153,59 @@
             v-for="(item, index) in visibleItems"
             :key="'log-' + index + '-' + item.type + '-' + (item.data?.query || item.message || index)"
           >
-            <!-- 搜索骨架屏（搜索中）：shadcn-vue Skeleton -->
-            <div v-if="item.type === 'search' && item.data?.searching" class="activity-section">
+            <!-- 活动分隔线（DeerFlow Separator） -->
+            <Separator v-if="(item.type === 'search' || item.type === 'crawl') && index > 0" class="my-8" />
+
+            <!-- 搜索骨架屏（搜索中）：shadcn-vue Skeleton（DeerFlow 6 个正方形） -->
+            <div v-if="item.type === 'search' && item.data?.searching" class="mt-4 pl-4">
               <div class="activity-label search-query-animated">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="activity-icon"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-                <span>搜索&nbsp;</span>
-                <span class="activity-query">{{ item.data.query }}</span>
+                <Search :size="16" class="mr-2 shrink-0" />
+                <span class="font-medium italic">搜索&nbsp;</span>
+                <span class="max-w-[300px] truncate">{{ item.data.query }}</span>
               </div>
-              <div class="flex gap-2 mt-2">
-                <Skeleton v-for="si in 2" :key="`skeleton-${si}`" class="h-16 w-40 rounded-md" />
+              <div class="flex flex-wrap gap-4 mt-2">
+                <Skeleton
+                  v-for="si in 6"
+                  :key="`skeleton-${si}`"
+                  class="h-40 w-40 rounded-xl bg-gradient-to-tl from-slate-400 to-accent"
+                  :style="{ animationDelay: `${si * 50}ms` }"
+                />
               </div>
             </div>
 
-            <!-- 搜索结果卡片（DeerFlow 风格方形卡片） -->
-            <div v-else-if="item.type === 'search' && item.data?.results" class="activity-section">
+            <!-- 搜索结果卡片（DeerFlow 风格正方形 h-40 w-40） -->
+            <div v-else-if="item.type === 'search' && item.data?.results" class="mt-4 pl-4">
               <div class="activity-label">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="activity-icon"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-                <span>搜索&nbsp;</span>
-                <span class="activity-query">{{ item.data.query }}</span>
+                <Search :size="16" class="mr-2 shrink-0" />
+                <span class="font-medium italic">搜索&nbsp;</span>
+                <span class="max-w-[300px] truncate">{{ item.data.query }}</span>
               </div>
-              <ul class="card-grid">
+              <ul class="flex flex-wrap gap-4 list-none p-0 m-0">
                 <li
-                  v-for="(r, ri) in item.data.results.slice(0, 8)"
+                  v-for="(r, ri) in item.data.results.slice(0, 20)"
                   :key="'result-' + ri"
-                  class="search-result-card"
-                  :style="`animation: card-in 0.15s ease-out both; animation-delay: ${Math.min(ri * 50, 300)}ms`"
+                  class="max-w-40 animate-in fade-in slide-in-from-bottom-2 duration-300 fill-mode-both"
+                  :style="{ animationDelay: `${Math.min(ri * 50, 500)}ms` }"
                 >
-                  <a class="search-result-card-inner" :href="r.url" target="_blank" rel="noopener">
-                    <img class="card-tile-favicon" :src="`https://www.google.com/s2/favicons?domain=${r.domain}&sz=16`" :alt="r.domain" width="16" height="16" />
-                    <span class="search-result-card-title">{{ r.title }}</span>
+                  <a class="flex gap-2 h-40 w-40 p-3 bg-accent rounded-xl text-xs text-muted-foreground no-underline overflow-hidden transition-colors hover:bg-muted hover:text-foreground" :href="r.url" target="_blank" rel="noopener">
+                    <img class="shrink-0 mt-0.5 rounded-sm" :src="`https://www.google.com/s2/favicons?domain=${r.domain}&sz=16`" :alt="r.domain" width="16" height="16" />
+                    <span class="overflow-hidden line-clamp-6 leading-relaxed break-words">{{ r.title }}</span>
                   </a>
                 </li>
               </ul>
             </div>
 
-            <!-- 爬取完成卡片 -->
-            <div v-else-if="item.type === 'crawl' && item.data" class="activity-section">
+            <!-- 爬取完成卡片（DeerFlow 风格正方形 h-40 w-40） -->
+            <div v-else-if="item.type === 'crawl' && item.data" class="mt-4 pl-4">
               <div class="activity-label search-query-animated">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="activity-icon"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-                <span>正在阅读</span>
+                <BookOpenText :size="16" class="mr-2 shrink-0" />
+                <span class="font-medium italic">正在阅读</span>
               </div>
-              <ul class="card-grid">
-                <li class="card-tile" style="animation: card-in 0.15s ease-out both">
-                  <a class="card-tile-inner" :href="item.data.url || '#'" target="_blank" rel="noopener">
-                    <img v-if="item.data.url" class="card-tile-favicon" :src="`https://www.google.com/s2/favicons?domain=${new URL(item.data.url).hostname}&sz=16`" width="16" height="16" />
-                    <span class="card-tile-title">{{ item.data.title || item.data.url || '未知页面' }}</span>
+              <ul class="flex flex-wrap gap-4 list-none p-0 m-0">
+                <li class="animate-in fade-in slide-in-from-bottom-2 duration-300">
+                  <a class="flex gap-2 h-40 w-40 p-3 bg-accent rounded-xl text-xs text-muted-foreground no-underline overflow-hidden transition-colors hover:bg-muted hover:text-foreground" :href="item.data.url || '#'" target="_blank" rel="noopener">
+                    <img v-if="item.data.url" class="shrink-0 mt-0.5 rounded-sm" :src="`https://www.google.com/s2/favicons?domain=${new URL(item.data.url).hostname}&sz=16`" width="16" height="16" />
+                    <span class="overflow-hidden line-clamp-6 leading-relaxed break-words">{{ item.data.title || item.data.url || '未知页面' }}</span>
                   </a>
                 </li>
               </ul>
@@ -241,7 +249,8 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue'
-import { Square, ChevronRight, ChevronDown, X, Lightbulb } from 'lucide-vue-next'
+import { Square, ChevronRight, ChevronDown, X, Lightbulb, Search, BookOpenText } from 'lucide-vue-next'
+import { Separator } from '@/components/ui/separator'
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -310,6 +319,22 @@ watch(
     }
   }
 )
+
+// ThoughtBlock: auto-scroll to bottom
+const thoughtScrollRef = ref<HTMLElement | null>(null)
+watch(thoughtLogs, async () => {
+  await nextTick()
+  if (thoughtScrollRef.value) {
+    thoughtScrollRef.value.scrollTop = thoughtScrollRef.value.scrollHeight
+  }
+})
+
+// ThoughtBlock: auto-collapse when outlineData appears
+watch(() => props.outlineData, (val) => {
+  if (val && thoughtExpanded.value) {
+    thoughtExpanded.value = false
+  }
+})
 
 // DeerFlow ThoughtBlock: 从日志中提取思考过程
 const thoughtLogs = computed(() => {
@@ -872,18 +897,7 @@ const getLogIcon = (type: string) => {
   background: var(--color-border-hover);
 }
 
-/* === DeerFlow 风格活动区块 === */
-.activity-section {
-  margin-top: var(--space-md);
-  padding-left: var(--space-md);
-}
-
-.activity-section + .activity-section {
-  border-top: 1px solid var(--color-border);
-  padding-top: var(--space-lg);
-  margin-top: var(--space-lg);
-}
-
+/* activity-label 保留（搜索/爬取标签共用） */
 .activity-label {
   display: flex;
   align-items: center;
@@ -892,76 +906,6 @@ const getLogIcon = (type: string) => {
   font-size: var(--font-size-sm);
   color: var(--color-text-primary);
   margin-bottom: var(--space-sm);
-}
-
-.activity-icon {
-  margin-right: var(--space-sm);
-  flex-shrink: 0;
-}
-
-.activity-query {
-  max-width: 300px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* 方形卡片网格（对齐 DeerFlow h-40 w-40 flex-wrap gap-4） */
-.card-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-md);
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  padding-right: var(--space-md);
-}
-
-.card-tile {
-  width: 160px;
-  height: 160px;
-}
-
-.card-tile-inner {
-  display: flex;
-  gap: var(--space-sm);
-  width: 100%;
-  height: 100%;
-  padding: var(--space-sm);
-  background: var(--color-muted);
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
-  text-decoration: none;
-  overflow: hidden;
-  transition: background 0.15s;
-}
-
-.card-tile-inner:hover {
-  background: var(--color-bg-input);
-  color: var(--color-text-primary);
-}
-
-.card-tile-favicon {
-  flex-shrink: 0;
-  margin-top: 2px;
-  border-radius: 2px;
-}
-
-.card-tile-title {
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 6;
-  -webkit-box-orient: vertical;
-  line-height: 1.4;
-  word-break: break-word;
-}
-
-/* 骨架屏已由 shadcn-vue Skeleton 替代 */
-
-@keyframes card-in {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
 }
 
 /* framer-motion 风格：TransitionGroup 入场/退场动画 */
@@ -1013,39 +957,7 @@ const getLogIcon = (type: string) => {
   100% { background-position: 100% 50%; }
 }
 
-/* DeerFlow 风格：搜索结果方形卡片 */
-.search-result-card {
-  max-width: 160px;
-}
-
-.search-result-card-inner {
-  display: flex;
-  gap: var(--space-sm);
-  width: 100%;
-  padding: var(--space-sm);
-  background: var(--color-muted);
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
-  text-decoration: none;
-  transition: background 0.15s;
-}
-
-.search-result-card-inner:hover {
-  background: var(--color-bg-input);
-  color: var(--color-text-primary);
-}
-
-.search-result-card-title {
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  line-height: 1.4;
-  word-break: break-word;
-}
-
-/* 保留旧爬取样式兼容 */
+/* 旧爬取样式兼容（普通日志中的爬取链接） */
 .crawl-link {
   color: var(--color-terminal-string, var(--color-success));
   text-decoration: none;
@@ -1056,10 +968,5 @@ const getLogIcon = (type: string) => {
 
 .crawl-link:hover {
   text-decoration: underline;
-}
-
-.crawl-size {
-  color: var(--color-text-muted, var(--color-border));
-  flex-shrink: 0;
 }
 </style>

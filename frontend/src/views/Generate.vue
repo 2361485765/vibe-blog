@@ -28,44 +28,74 @@
       <!-- 右栏：研究面板（Card 容器） -->
       <div class="generate-right" v-show="!isMobile || mobileTab === 'preview'">
         <div class="research-card">
-          <!-- 右上角工具栏（对齐 DeerFlow 图标按钮） -->
+          <!-- 右上角工具栏（DeerFlow lucide + Tooltip） -->
           <div class="card-toolbar">
-            <button v-if="isLoading" class="icon-btn stop-btn" title="停止" @click="stopGeneration">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
-            </button>
-            <template v-if="previewContent && !isLoading">
-              <button class="icon-btn" title="编辑" @click="toggleEdit">
-                <svg v-if="!isEditing" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
-                <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
-              </button>
-              <button class="icon-btn" title="复制" @click="handleCopy">
-                <svg v-if="!copied" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
-                <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>
-              </button>
-              <button v-if="completedBlogId" class="icon-btn" title="质量评估" :disabled="evaluateLoading" @click="handleEvaluate">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>
-              </button>
-              <ExportMenu
-                :content="previewContent"
-                :filename="outlineTitle"
-                :is-downloading="exportComposable.isDownloading.value"
-                @export="handleExport"
-              />
-            </template>
-            <button class="icon-btn" title="关闭" @click="goBack">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-            </button>
+            <TooltipProvider :delay-duration="200">
+              <Tooltip v-if="isLoading">
+                <TooltipTrigger as-child>
+                  <Button variant="ghost" size="icon" class="h-8 w-8 text-red-400 hover:bg-red-400/10" @click="stopGeneration">
+                    <Square :size="16" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>停止</TooltipContent>
+              </Tooltip>
+              <template v-if="previewContent && !isLoading">
+                <Tooltip>
+                  <TooltipTrigger as-child>
+                    <Button variant="ghost" size="icon" class="h-8 w-8" @click="toggleEdit">
+                      <Undo2 v-if="isEditing" :size="16" />
+                      <Pencil v-else :size="16" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{{ isEditing ? '取消编辑' : '编辑' }}</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger as-child>
+                    <Button variant="ghost" size="icon" class="h-8 w-8" @click="handleCopy">
+                      <Check v-if="copied" :size="16" />
+                      <Copy v-else :size="16" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{{ copied ? '已复制' : '复制' }}</TooltipContent>
+                </Tooltip>
+                <Tooltip v-if="completedBlogId">
+                  <TooltipTrigger as-child>
+                    <Button variant="ghost" size="icon" class="h-8 w-8" :disabled="evaluateLoading" @click="handleEvaluate">
+                      <GraduationCap :size="16" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>质量评估</TooltipContent>
+                </Tooltip>
+                <ExportMenu
+                  :content="previewContent"
+                  :filename="outlineTitle"
+                  :is-downloading="exportComposable.isDownloading.value"
+                  @export="handleExport"
+                />
+              </template>
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <Button variant="ghost" size="icon" class="h-8 w-8" @click="goBack">
+                    <XIcon :size="16" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>关闭</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
 
-          <!-- 居中标题区（对齐 DeerFlow TabsList 位置） -->
-          <div class="card-tabs">
-            <div class="card-tabs-list">
-              <span class="card-tab active">报告</span>
+          <!-- 居中 Tab（DeerFlow shadcn Tabs） -->
+          <Tabs v-model="activeTab" class="w-full">
+            <div class="flex items-center justify-center">
+              <TabsList>
+                <TabsTrigger value="report">报告</TabsTrigger>
+                <TabsTrigger value="activities">活动</TabsTrigger>
+              </TabsList>
             </div>
-          </div>
+          </Tabs>
 
           <!-- 报告内容 -->
-          <div class="card-tab-content">
+          <div class="card-tab-content" v-show="activeTab === 'report'">
             <div class="report-scroll">
               <!-- DeerFlow ScrollContainer 滚动阴影 -->
               <div class="scroll-shadow scroll-shadow-top"></div>
@@ -88,6 +118,31 @@
                   📖 查看文章
                 </button>
               </div>
+            </div>
+          </div>
+
+          <!-- 活动日志 Tab -->
+          <div class="card-tab-content" v-show="activeTab === 'activities'">
+            <div class="activities-scroll">
+              <ProgressDrawer
+                :visible="true"
+                :expanded="true"
+                :embedded="true"
+                :is-loading="isLoading"
+                :status-badge="statusBadge"
+                :progress-text="progressText"
+                :progress-items="progressItems"
+                :article-type="'blog'"
+                :target-length="''"
+                :task-id="currentTaskId"
+                :outline-data="outlineData"
+                :waiting-for-outline="waitingForOutline"
+                :preview-content="''"
+                @close="goBack"
+                @stop="stopGeneration"
+                @toggle="() => {}"
+                @confirm-outline="confirmOutline"
+              />
             </div>
           </div>
         </div>
@@ -133,6 +188,10 @@ import { useExport } from '@/composables/useExport'
 import { useMarkdownRenderer } from '@/composables/useMarkdownRenderer'
 import { scanCitationLinks } from '@/utils/citationMatcher'
 import type { Citation } from '@/utils/citationMatcher'
+import { Square, Pencil, Undo2, Copy, Check, GraduationCap, X as XIcon } from 'lucide-vue-next'
+import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import * as api from '@/services/api'
 import ProgressDrawer from '@/components/home/ProgressDrawer.vue'
 import ExportMenu from '@/components/generate/ExportMenu.vue'
@@ -423,75 +482,9 @@ onUnmounted(() => {
   z-index: 10;
 }
 
-.icon-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-sm);
-  color: #9ca3af;
-  cursor: pointer;
-  transition: color 0.15s, background 0.15s;
-}
+/* icon-btn / card-tabs 已由 shadcn Button + Tabs 替代 */
 
-.icon-btn:hover {
-  color: var(--color-text-primary);
-  background: var(--color-bg-input);
-}
-
-.icon-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.icon-btn.stop-btn {
-  color: #f87171;
-}
-
-.icon-btn.stop-btn:hover {
-  background: rgba(248, 113, 113, 0.1);
-}
-
-/* === 居中 Tabs（对齐 DeerFlow TabsList） === */
-.card-tabs {
-  display: flex;
-  justify-content: center;
-  width: 100%;
-  flex-shrink: 0;
-}
-
-.card-tabs-list {
-  display: inline-flex;
-  background: var(--color-bg-input);
-  border-radius: var(--radius-md);
-  padding: 4px;
-}
-
-.card-tab {
-  padding: 6px 32px;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.card-tab.active {
-  background: var(--color-bg-elevated);
-  color: var(--color-text-primary);
-  box-shadow: var(--shadow-sm);
-}
-
-.card-tab:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
+/* card-tabs-list / card-tab 已由 shadcn Tabs 替代 */
 
 /* === Tab 内容区 === */
 .card-tab-content {
