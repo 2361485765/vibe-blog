@@ -228,7 +228,7 @@ const generateCoverVideo = ref(false)
 const videoAspectRatio = ref('16:9')
 const deepThinking = ref(false)
 const backgroundInvestigation = ref(true)
-const interactive = ref(false)
+const interactive = ref(true)
 const imageStyles = ref<Array<{ id: string; name: string; icon: string }>>([
   { id: 'cartoon', name: '默认风格', icon: '🎨' }
 ])
