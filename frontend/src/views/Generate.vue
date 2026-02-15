@@ -75,6 +75,14 @@
               </template>
               <Tooltip>
                 <TooltipTrigger as-child>
+                  <Button variant="ghost" size="icon" class="h-8 w-8" as="a" href="https://github.com/datawhalechina/vibe-blog" target="_blank" rel="noopener">
+                    <Github :size="16" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>在 GitHub 上点赞</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger as-child>
                   <Button variant="ghost" size="icon" class="h-8 w-8" @click="settingsOpen = true">
                     <SettingsIcon :size="16" />
                   </Button>
@@ -199,7 +207,7 @@ import { useExport } from '@/composables/useExport'
 import { useMarkdownRenderer } from '@/composables/useMarkdownRenderer'
 import { scanCitationLinks } from '@/utils/citationMatcher'
 import type { Citation } from '@/utils/citationMatcher'
-import { Square, Pencil, Undo2, Copy, Check, GraduationCap, Settings as SettingsIcon, X as XIcon } from 'lucide-vue-next'
+import { Square, Pencil, Undo2, Copy, Check, GraduationCap, Github, Settings as SettingsIcon, X as XIcon } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
