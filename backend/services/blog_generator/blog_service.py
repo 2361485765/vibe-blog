@@ -1026,6 +1026,27 @@ class BlogService:
                     section_images=section_images
                 )
             
+            # 构建 citations 列表（合并 search_results + top_references，URL 去重）
+            citations = []
+            seen_urls = set()
+            for src_list_key in ('search_results', 'top_references'):
+                for r in (final_state.get(src_list_key) or []):
+                    url = r.get('url') or r.get('source', '')
+                    if not url or url in seen_urls:
+                        continue
+                    seen_urls.add(url)
+                    try:
+                        from urllib.parse import urlparse
+                        domain = urlparse(url).hostname or ''
+                    except Exception:
+                        domain = ''
+                    citations.append({
+                        'url': url,
+                        'title': r.get('title', ''),
+                        'domain': domain,
+                        'snippet': (r.get('content', '') or r.get('snippet', ''))[:80],
+                    })
+
             # 保存历史记录（使用包含封面图的 markdown）
             try:
                 from services.database_service import get_db_service
@@ -1099,27 +1120,6 @@ class BlogService:
                 except Exception as e:
                     logger.warning(f"任务日志保存失败: {e}")
 
-            # 构建 citations 列表（合并 search_results + top_references，URL 去重）
-            citations = []
-            seen_urls = set()
-            for src_list_key in ('search_results', 'top_references'):
-                for r in (final_state.get(src_list_key) or []):
-                    url = r.get('url') or r.get('source', '')
-                    if not url or url in seen_urls:
-                        continue
-                    seen_urls.add(url)
-                    try:
-                        from urllib.parse import urlparse
-                        domain = urlparse(url).hostname or ''
-                    except Exception:
-                        domain = ''
-                    citations.append({
-                        'url': url,
-                        'title': r.get('title', ''),
-                        'domain': domain,
-                        'snippet': (r.get('content', '') or r.get('snippet', ''))[:80],
-                    })
-            
             # 发送完成事件（使用包含封面图的 markdown）
             if task_manager:
                 complete_data = {
