@@ -75,6 +75,14 @@
               </template>
               <Tooltip>
                 <TooltipTrigger as-child>
+                  <Button variant="ghost" size="icon" class="h-8 w-8" @click="settingsOpen = true">
+                    <SettingsIcon :size="16" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>设置</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger as-child>
                   <Button variant="ghost" size="icon" class="h-8 w-8" @click="goBack">
                     <XIcon :size="16" />
                   </Button>
@@ -83,6 +91,9 @@
               </Tooltip>
             </TooltipProvider>
           </div>
+
+          <!-- 设置弹窗 -->
+          <SettingsDialog v-model:open="settingsOpen" />
 
           <!-- 居中 Tab（DeerFlow shadcn Tabs） -->
           <Tabs v-model="activeTab" class="w-full">
@@ -188,7 +199,7 @@ import { useExport } from '@/composables/useExport'
 import { useMarkdownRenderer } from '@/composables/useMarkdownRenderer'
 import { scanCitationLinks } from '@/utils/citationMatcher'
 import type { Citation } from '@/utils/citationMatcher'
-import { Square, Pencil, Undo2, Copy, Check, GraduationCap, X as XIcon } from 'lucide-vue-next'
+import { Square, Pencil, Undo2, Copy, Check, GraduationCap, Settings as SettingsIcon, X as XIcon } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -197,6 +208,7 @@ import ProgressDrawer from '@/components/home/ProgressDrawer.vue'
 import ExportMenu from '@/components/generate/ExportMenu.vue'
 import QualityDialog from '@/components/generate/QualityDialog.vue'
 import CitationTooltip from '@/components/generate/CitationTooltip.vue'
+import SettingsDialog from '@/components/generate/SettingsDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -206,6 +218,7 @@ const windowWidth = ref(window.innerWidth)
 const isMobile = computed(() => windowWidth.value < 768)
 const mobileTab = ref<'activity' | 'preview'>('activity')
 const activeTab = ref<'report' | 'activities'>('activities')
+const settingsOpen = ref(false)
 function onResize() { windowWidth.value = window.innerWidth }
 
 // composables
