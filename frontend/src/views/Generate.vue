@@ -482,10 +482,6 @@ onUnmounted(() => {
   z-index: 10;
 }
 
-/* icon-btn / card-tabs 已由 shadcn Button + Tabs 替代 */
-
-/* card-tabs-list / card-tab 已由 shadcn Tabs 替代 */
-
 /* === Tab 内容区 === */
 .card-tab-content {
   flex: 1;
@@ -526,14 +522,6 @@ onUnmounted(() => {
   height: 100%;
   overflow-y: auto;
   padding: 16px 32px;
-}
-
-.activities-placeholder {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
 }
 
 /* === 移动端 Tab 栏 === */

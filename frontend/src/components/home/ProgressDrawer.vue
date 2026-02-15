@@ -700,56 +700,45 @@ const getLogIcon = (type: string) => {
   gap: var(--space-xs);
 }
 
+/* DeerFlow ActivityMessage 风格日志行 */
 .progress-log-item {
   display: flex;
   align-items: flex-start;
   gap: var(--space-sm);
-  padding: var(--space-xs) var(--space-sm);
+  padding: 3px var(--space-sm);
   border-radius: var(--radius-sm);
   font-size: var(--font-size-xs);
-  line-height: var(--line-height-relaxed);
-  transition: var(--transition-colors);
+  line-height: 1.6;
+  transition: background 0.1s;
 }
 
 .progress-log-item:hover {
-  background: var(--color-bg-elevated);
+  background: hsl(var(--muted) / 0.5);
 }
 
 .progress-log-time {
   color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
+  font-size: 10px;
   flex-shrink: 0;
-  min-width: 60px;
+  min-width: 56px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.6;
+  padding-top: 1px;
 }
 
 .progress-log-icon {
   flex-shrink: 0;
-  font-weight: var(--font-weight-bold);
 }
 
-.progress-log-icon.info {
-  color: var(--color-info);
-}
-
-.progress-log-icon.success {
-  color: var(--color-success);
-}
-
-.progress-log-icon.error {
-  color: var(--color-error);
-}
-
-.progress-log-icon.warning {
-  color: var(--color-warning);
-}
-
-.progress-log-icon.stream {
-  color: var(--color-primary);
-}
+.progress-log-icon.info { color: var(--color-info); }
+.progress-log-icon.success { color: var(--color-success); }
+.progress-log-icon.error { color: var(--color-error); }
+.progress-log-icon.warning { color: var(--color-warning); }
+.progress-log-icon.stream { color: var(--color-primary); }
 
 .progress-log-msg {
   flex: 1;
-  color: var(--color-text-primary);
+  color: var(--color-text-secondary);
   word-break: break-word;
 }
 
