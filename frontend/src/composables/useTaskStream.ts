@@ -241,12 +241,14 @@ export function useTaskStream() {
           if (data.key_concepts?.length > 0) {
             addProgressItem(`💡 核心概念: ${data.key_concepts.join(', ')}`, 'success')
           }
+          addProgressItem('素材收集阶段结束', 'divider')
           break
         case 'outline_complete':
           if (data.sections_titles?.length > 0) {
             const titles = data.sections_titles.map((t: string, i: number) => `${i + 1}. ${t}`).join('\n')
             addProgressItem(`📋 大纲: ${data.title}`, 'success', titles)
           }
+          addProgressItem('大纲规划阶段结束', 'divider')
           break
         case 'section_complete':
           addProgressItem(`✍️ 章节 ${data.section_index} 完成: ${data.title} (${data.content_length} 字)`, 'success')
@@ -273,9 +275,11 @@ export function useTaskStream() {
           break
         case 'reviewer_complete':
           addProgressItem(`✅ 质量审核: ${data.score} 分 ${data.passed ? '通过' : '需修订'}`, data.passed ? 'success' : 'warning')
+          addProgressItem('内容审核阶段结束', 'divider')
           break
         case 'assembler_complete':
           addProgressItem(`📦 文档组装完成: ${data.markdown_length} 字`, 'success')
+          addProgressItem('文档组装阶段结束', 'divider')
           break
         default:
           if (data.message) {

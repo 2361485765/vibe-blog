@@ -211,6 +211,13 @@
               </ul>
             </div>
 
+            <!-- 阶段分隔线 -->
+            <div v-else-if="item.type === 'divider'" class="stage-divider">
+              <div class="stage-divider-line"></div>
+              <span class="stage-divider-text">{{ item.message }}</span>
+              <div class="stage-divider-line"></div>
+            </div>
+
             <!-- 普通日志 -->
             <div
               v-else
@@ -895,6 +902,29 @@ const getLogIcon = (type: string) => {
 
 .progress-logs-container::-webkit-scrollbar-thumb:hover {
   background: var(--color-border-hover);
+}
+
+/* 阶段分隔线 ---- xxx 阶段结束 ---- */
+.stage-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin: var(--space-lg) 0;
+  padding: 0 var(--space-sm);
+}
+
+.stage-divider-line {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(to right, transparent, var(--color-border), transparent);
+}
+
+.stage-divider-text {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+  letter-spacing: 0.05em;
 }
 
 /* activity-label 保留（搜索/爬取标签共用） */
