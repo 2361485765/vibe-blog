@@ -26,6 +26,15 @@
         <Search :size="14" />
         <span>教程评估</span>
       </router-link>
+      <a
+        href="https://github.com/datawhalechina/vibe-blog"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="theme-toggle"
+        title="在 GitHub 上点赞"
+      >
+        <Github :size="18" />
+      </a>
       <button
         class="theme-toggle"
         :title="isDarkMode ? '切换到浅色模式' : '切换到深色模式'"
@@ -40,7 +49,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Sun, Moon, BookOpen, Search } from 'lucide-vue-next'
+import { Sun, Moon, BookOpen, Search, Github } from 'lucide-vue-next'
 import { useThemeStore } from '../../stores/theme'
 
 interface Props {
