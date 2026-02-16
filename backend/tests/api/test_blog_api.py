@@ -653,7 +653,7 @@ class TestConfirmOutlineAPI:
 class TestEvaluateArticleAPI:
     """测试文章评估 API (101.04)"""
 
-    @patch('services.db_service.get_db_service')
+    @patch('services.database_service.get_db_service')
     def test_evaluate_article_success(self, mock_get_db, client, mock_blog_service):
         """测试成功评估文章"""
         mock_evaluation = {
@@ -696,7 +696,7 @@ class TestEvaluateArticleAPI:
         assert data['evaluation']['overall_score'] == 83
         assert len(data['evaluation']['scores']) == 6
 
-    @patch('services.db_service.get_db_service')
+    @patch('services.database_service.get_db_service')
     def test_evaluate_article_not_found(self, mock_get_db, client):
         """测试文章不存在返回 404"""
         mock_db = MagicMock()
@@ -710,7 +710,7 @@ class TestEvaluateArticleAPI:
         assert data['success'] is False
         assert '不存在' in data['error']
 
-    @patch('services.db_service.get_db_service')
+    @patch('services.database_service.get_db_service')
     def test_evaluate_article_service_error(self, mock_get_db, client, mock_blog_service):
         """测试评估服务异常"""
         mock_blog_service.evaluate_article.side_effect = Exception('LLM error')
