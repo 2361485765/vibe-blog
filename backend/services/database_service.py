@@ -190,7 +190,8 @@ class DatabaseService:
                 'target_code_blocks_count': 'INTEGER',
                 'target_word_count': 'INTEGER',
                 'book_id': 'TEXT',
-                'summary': 'TEXT'  # 博客摘要
+                'summary': 'TEXT',  # 博客摘要
+                'citations': 'TEXT',  # 引用来源（JSON）
             }
             
             for col_name, col_type in new_columns.items():
