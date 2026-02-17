@@ -29,7 +29,7 @@ describe('PublishModal.vue', () => {
         },
       })
 
-      expect(wrapper.html()).toBe('')
+      expect(wrapper.html()).toMatch(/^<!--v-if-->$/)
     })
 
     it('should render modal header', () => {
