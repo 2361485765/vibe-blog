@@ -143,7 +143,7 @@ describe('BlogHistoryList.vue', () => {
         await buttons[0].trigger('click')
       }
 
-      expect(wrapper.emitted('toggleList')).toBeFalsy()
+      expect(wrapper.emitted('toggleList')).toHaveLength(0)
     })
 
     it('should rotate icon when list is shown', () => {
@@ -199,7 +199,7 @@ describe('BlogHistoryList.vue', () => {
         await buttons[1].trigger('click')
       }
 
-      expect(wrapper.emitted('switchTab')).toBeFalsy()
+      expect(wrapper.emitted('switchTab')).toHaveLength(0)
     })
   })
 
