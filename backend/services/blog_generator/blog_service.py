@@ -1486,6 +1486,28 @@ class BlogService:
                 from services.database_service import get_db_service
                 import json
                 db_service = get_db_service()
+                
+                # 构建 citations（复用 _run_generation 逻辑）
+                citations = []
+                seen_urls = set()
+                for src_list_key in ('search_results', 'top_references'):
+                    for r in (final_state.get(src_list_key) or []):
+                        url = r.get('url') or r.get('source', '')
+                        if not url or url in seen_urls:
+                            continue
+                        seen_urls.add(url)
+                        try:
+                            from urllib.parse import urlparse
+                            domain = urlparse(url).hostname or ''
+                        except Exception:
+                            domain = ''
+                        citations.append({
+                            'url': url,
+                            'title': r.get('title', ''),
+                            'domain': domain,
+                            'snippet': (r.get('content', '') or r.get('snippet', ''))[:80],
+                        })
+                
                 db_service.save_history(
                     history_id=task_id,
                     topic=topic,
@@ -1503,6 +1525,7 @@ class BlogService:
                     target_images_count=article_config.get('images_count'),
                     target_code_blocks_count=article_config.get('code_blocks_count'),
                     target_word_count=article_config.get('target_word_count'),
+                    citations=json.dumps(citations, ensure_ascii=False) if citations else None
                 )
                 logger.info(f"历史记录已保存: {task_id}")
 
