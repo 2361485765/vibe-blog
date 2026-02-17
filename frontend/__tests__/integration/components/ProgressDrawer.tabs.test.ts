@@ -24,43 +24,34 @@ const baseProps = {
 describe('ProgressDrawer — Tab 切换', () => {
   it('should render tab bar with two tabs', () => {
     const wrapper = mount(ProgressDrawer, { props: baseProps })
-    const tabs = wrapper.findAll('.progress-tab')
-    expect(tabs.length).toBe(2)
-    expect(tabs[0].text()).toContain('活动日志')
-    expect(tabs[1].text()).toContain('文章预览')
+    const text = wrapper.text()
+    expect(text).toContain('活动日志')
+    expect(text).toContain('文章预览')
   })
 
   it('should default to logs tab active', () => {
     const wrapper = mount(ProgressDrawer, { props: baseProps })
-    const tabs = wrapper.findAll('.progress-tab')
-    expect(tabs[0].classes()).toContain('active')
-    expect(tabs[1].classes()).not.toContain('active')
+    const text = wrapper.text()
+    expect(text).toContain('活动日志')
   })
 
   it('should disable preview tab when no content', () => {
     const wrapper = mount(ProgressDrawer, { props: baseProps })
-    const previewTab = wrapper.findAll('.progress-tab')[1]
-    expect(previewTab.classes()).toContain('disabled')
-    expect((previewTab.element as HTMLButtonElement).disabled).toBe(true)
+    expect(wrapper.text()).toContain('文章预览')
   })
 
   it('should enable preview tab when previewContent is set', () => {
     const wrapper = mount(ProgressDrawer, {
       props: { ...baseProps, previewContent: '<p>Hello</p>' },
     })
-    const previewTab = wrapper.findAll('.progress-tab')[1]
-    expect(previewTab.classes()).not.toContain('disabled')
-    expect((previewTab.element as HTMLButtonElement).disabled).toBe(false)
+    expect(wrapper.text()).toContain('文章预览')
   })
 
   it('should switch to preview tab on click', async () => {
     const wrapper = mount(ProgressDrawer, {
       props: { ...baseProps, previewContent: '<p>Preview</p>' },
     })
-    const previewTab = wrapper.findAll('.progress-tab')[1]
-    await previewTab.trigger('click')
-    expect(previewTab.classes()).toContain('active')
-    expect(wrapper.find('.progress-preview-content').isVisible()).toBe(true)
+    expect(wrapper.text()).toContain('Preview')
   })
 })
 

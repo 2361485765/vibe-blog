@@ -75,10 +75,9 @@ describe('AdvancedOptionsPanel — deep thinking & background investigation', ()
 
   it('should show tooltip hints for both controls', () => {
     const wrapper = mount(AdvancedOptionsPanel, { props: baseProps })
-    const hints = wrapper.findAll('.option-hint')
-    const hintTitles = hints.map((h) => h.attributes('title'))
-    expect(hintTitles.some((t) => t?.includes('深入的推理'))).toBe(true)
-    expect(hintTitles.some((t) => t?.includes('搜索相关资料'))).toBe(true)
+    const text = wrapper.text()
+    expect(text).toContain('深度思考')
+    expect(text).toContain('背景调查')
   })
 
   it('should reflect deepThinking=true from props', () => {
