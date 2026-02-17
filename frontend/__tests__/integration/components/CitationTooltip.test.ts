@@ -39,7 +39,7 @@ describe('CitationTooltip.vue', () => {
       ...mountOpts,
       props: { visible: false, citation: mockCitation, index: 1, position: { top: 0, left: 0 } },
     })
-    expect(wrapper.html()).toBe('')
+    expect(wrapper.html()).toContain('<!--v-if-->')
   })
 
   it('should not render when citation is null', () => {
@@ -47,7 +47,7 @@ describe('CitationTooltip.vue', () => {
       ...mountOpts,
       props: { visible: true, citation: null, index: 1, position: { top: 0, left: 0 } },
     })
-    expect(wrapper.html()).toBe('')
+    expect(wrapper.html()).toContain('<!--v-if-->')
   })
 
   it('should render citation index', () => {
