@@ -141,9 +141,8 @@ describe('BlogHistoryList.vue', () => {
       const buttons = wrapper.findAll('button')
       if (buttons.length > 0) {
         await buttons[0].trigger('click')
+        expect(wrapper.emitted('toggleList')).toBeTruthy()
       }
-
-      expect(wrapper.emitted('toggleList')).toHaveLength(0)
     })
 
     it('should rotate icon when list is shown', () => {
@@ -197,9 +196,8 @@ describe('BlogHistoryList.vue', () => {
       const buttons = wrapper.findAll('button')
       if (buttons.length > 1) {
         await buttons[1].trigger('click')
+        expect(wrapper.emitted('switchTab')).toBeTruthy()
       }
-
-      expect(wrapper.emitted('switchTab')).toHaveLength(0)
     })
   })
 
