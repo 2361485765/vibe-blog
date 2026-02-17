@@ -2,6 +2,7 @@
 T5: asyncio 自驱动定时器测试
 """
 import pytest
+import pytest_asyncio
 import asyncio
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, patch
@@ -18,14 +19,14 @@ class TestCronTimerArm:
             'check_stuck': AsyncMock(),
         }
 
-    @pytest.fixture
-    def timer(self, timer_deps):
+    @pytest_asyncio.fixture
+    async def timer(self, timer_deps):
         t = CronTimer(
             get_next_wake_at=timer_deps['get_next_wake_at'],
             tick=timer_deps['tick'],
             check_stuck=timer_deps['check_stuck'],
         )
-        t._loop = asyncio.get_event_loop()
+        t._loop = asyncio.get_running_loop()
         return t
 
     async def test_arm_no_tasks(self, timer, timer_deps):
@@ -88,14 +89,14 @@ class TestCronTimerOnTimer:
             'check_stuck': AsyncMock(),
         }
 
-    @pytest.fixture
-    def timer(self, timer_deps):
+    @pytest_asyncio.fixture
+    async def timer(self, timer_deps):
         t = CronTimer(
             get_next_wake_at=timer_deps['get_next_wake_at'],
             tick=timer_deps['tick'],
             check_stuck=timer_deps['check_stuck'],
         )
-        t._loop = asyncio.get_event_loop()
+        t._loop = asyncio.get_running_loop()
         return t
 
     async def test_calls_tick_and_check(self, timer, timer_deps):
@@ -142,7 +143,7 @@ class TestCronTimerStartStop:
             tick=AsyncMock(),
             check_stuck=AsyncMock(),
         )
-        timer._loop = asyncio.get_event_loop()
+        timer._loop = asyncio.get_running_loop()
         await timer.arm()
         assert timer._timer_handle is not None
         timer.stop()
@@ -168,6 +169,6 @@ class TestCronTimerStartStop:
             check_stuck=AsyncMock(),
             enabled=False,
         )
-        timer._loop = asyncio.get_event_loop()
+        timer._loop = asyncio.get_running_loop()
         await timer.arm()
         assert timer._timer_handle is None
