@@ -637,3 +637,4 @@ describe('animation control', () => {
     expect(wrapper.exists()).toBe(true)
   })
 })
+
