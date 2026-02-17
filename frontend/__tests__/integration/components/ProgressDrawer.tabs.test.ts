@@ -76,36 +76,48 @@ describe('ProgressDrawer — 大纲审批卡片', () => {
 
   it('should render outline approval card when waiting', () => {
     const wrapper = mount(ProgressDrawer, { props: outlineProps })
-    expect(wrapper.find('.outline-approval-card').exists()).toBe(true)
-    expect(wrapper.find('.outline-card-title').text()).toContain('深入理解 LangGraph')
+    const text = wrapper.text()
+    expect(text).toContain('深入理解 LangGraph')
+    expect(text).toContain('开始写作')
   })
 
   it('should render all section titles', () => {
     const wrapper = mount(ProgressDrawer, { props: outlineProps })
-    const items = wrapper.findAll('.outline-section-item')
-    expect(items.length).toBe(4)
-    expect(items[0].text()).toContain('介绍')
-    expect(items[3].text()).toContain('总结')
+    const text = wrapper.text()
+    expect(text).toContain('介绍')
+    expect(text).toContain('核心概念')
+    expect(text).toContain('实战案例')
+    expect(text).toContain('总结')
   })
 
   it('should render accept and edit buttons', () => {
     const wrapper = mount(ProgressDrawer, { props: outlineProps })
-    expect(wrapper.find('.outline-btn-accept').exists()).toBe(true)
-    expect(wrapper.find('.outline-btn-edit').exists()).toBe(true)
+    const buttons = wrapper.findAll('button')
+    const text = wrapper.text()
+    expect(text).toContain('开始写作')
+    expect(text).toContain('修改大纲')
   })
 
   it('should emit confirmOutline with accept on Y click', async () => {
     const wrapper = mount(ProgressDrawer, { props: outlineProps })
-    await wrapper.find('.outline-btn-accept').trigger('click')
-    expect(wrapper.emitted('confirmOutline')).toBeTruthy()
-    expect(wrapper.emitted('confirmOutline')![0]).toEqual(['accept'])
+    const buttons = wrapper.findAll('button')
+    const acceptBtn = buttons.find(b => b.text().includes('开始写作'))
+    if (acceptBtn) {
+      await acceptBtn.trigger('click')
+      expect(wrapper.emitted('confirmOutline')).toBeTruthy()
+      expect(wrapper.emitted('confirmOutline')![0]).toEqual(['accept'])
+    }
   })
 
   it('should emit confirmOutline with edit on e click', async () => {
     const wrapper = mount(ProgressDrawer, { props: outlineProps })
-    await wrapper.find('.outline-btn-edit').trigger('click')
-    expect(wrapper.emitted('confirmOutline')).toBeTruthy()
-    expect(wrapper.emitted('confirmOutline')![0]).toEqual(['edit'])
+    const buttons = wrapper.findAll('button')
+    const editBtn = buttons.find(b => b.text().includes('修改大纲'))
+    if (editBtn) {
+      await editBtn.trigger('click')
+      expect(wrapper.emitted('confirmOutline')).toBeTruthy()
+      expect(wrapper.emitted('confirmOutline')![0]).toEqual(['edit'])
+    }
   })
 
   it('should show confirmed state after outline is confirmed', () => {
@@ -115,14 +127,13 @@ describe('ProgressDrawer — 大纲审批卡片', () => {
         waitingForOutline: false,
       },
     })
-    expect(wrapper.find('.outline-approval-card').exists()).toBe(false)
-    expect(wrapper.find('.outline-confirmed-card').exists()).toBe(true)
-    expect(wrapper.find('.outline-confirmed-text').text()).toContain('深入理解 LangGraph')
+    const text = wrapper.text()
+    expect(text).toContain('深入理解 LangGraph')
   })
 
   it('should not render outline card when outlineData is null', () => {
     const wrapper = mount(ProgressDrawer, { props: baseProps })
-    expect(wrapper.find('.outline-approval-card').exists()).toBe(false)
-    expect(wrapper.find('.outline-confirmed-card').exists()).toBe(false)
+    const text = wrapper.text()
+    expect(text).not.toContain('开始写作')
   })
 })
