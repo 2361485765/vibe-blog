@@ -180,13 +180,16 @@ def resilient_chat(
             else:
                 # 非主线程：用 concurrent.futures 做超时保护
                 _rate_limit_hook()
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                    future = pool.submit(current_model.invoke, messages)
-                    try:
-                        response = future.result(timeout=timeout)
-                    except concurrent.futures.TimeoutError:
-                        future.cancel()
-                        raise LLMCallTimeout(f"LLM 调用超时 ({timeout}s)")
+                pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+                future = pool.submit(current_model.invoke, messages)
+                try:
+                    response = future.result(timeout=timeout)
+                except concurrent.futures.TimeoutError:
+                    future.cancel()
+                    pool.shutdown(wait=False, cancel_futures=True)
+                    raise LLMCallTimeout(f"LLM 调用超时 ({timeout}s)")
+                finally:
+                    pool.shutdown(wait=False)
 
             content = response.content.strip() if response.content else ""
 
