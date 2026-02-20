@@ -1,9 +1,15 @@
 """
-节点级中间件管道引擎（102.10 迁移特性 A）
+节点级中间件管道引擎（102.10 迁移特性 A + 102.02 中间件管道升级）
 
 将 DeerFlow 的 AgentMiddleware 思想适配到 VibeBlog 的 LangGraph DAG 架构。
 每个中间件实现 before_node / after_node 钩子，通过 MiddlewarePipeline.wrap_node()
 透明包装现有节点函数。
+
+102.02 新增：
+- before_pipeline / after_pipeline 全局钩子
+- on_error 降级钩子
+- FeatureToggleMiddleware 统一功能开关
+- GracefulDegradationMiddleware 统一降级处理
 
 环境变量开关：MIDDLEWARE_PIPELINE_ENABLED (default: true)
 """
@@ -12,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from typing import Any, Callable, Dict, List, Optional, Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
@@ -33,22 +40,77 @@ class NodeMiddleware(Protocol):
         ...
 
 
+class ExtendedMiddleware:
+    """
+    扩展中间件基类（102.02）— 支持全局钩子和错误处理。
+
+    子类可选覆盖 before_pipeline / after_pipeline / on_error。
+    同时满足 NodeMiddleware 协议。
+    """
+
+    def before_node(self, state: Dict[str, Any], node_name: str) -> Optional[Dict[str, Any]]:
+        return None
+
+    def after_node(self, state: Dict[str, Any], node_name: str) -> Optional[Dict[str, Any]]:
+        return None
+
+    def before_pipeline(self, state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """流水线开始前。用于全局初始化。"""
+        return None
+
+    def after_pipeline(self, state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """流水线结束后。用于全局清理和汇总。"""
+        return None
+
+    def on_error(self, state: Dict[str, Any], node_name: str, error: Exception) -> Optional[Dict[str, Any]]:
+        """节点异常时。返回 dict 表示降级成功，返回 None 表示继续抛出。"""
+        return None
+
+
 class MiddlewarePipeline:
     """
     中间件管道 — 管理中间件注册和节点包装。
 
+    102.02 增强：支持 before_pipeline / after_pipeline / on_error 钩子。
+
     用法：
         pipeline = MiddlewarePipeline(middlewares=[TracingMiddleware(), ...])
+        state = pipeline.run_before_pipeline(state)
         wrapped_fn = pipeline.wrap_node("researcher", original_fn)
+        state = pipeline.run_after_pipeline(state)
     """
 
     def __init__(self, middlewares: Optional[List[Any]] = None):
         self.middlewares: List[Any] = middlewares or []
 
+    def run_before_pipeline(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """执行所有中间件的 before_pipeline 钩子（正序）"""
+        for mw in self.middlewares:
+            if hasattr(mw, "before_pipeline"):
+                try:
+                    patch = mw.before_pipeline(state)
+                    if patch and isinstance(patch, dict):
+                        state.update(patch)
+                except Exception:
+                    logger.exception("Middleware %s.before_pipeline failed", type(mw).__name__)
+        return state
+
+    def run_after_pipeline(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """执行所有中间件的 after_pipeline 钩子（逆序）"""
+        for mw in reversed(self.middlewares):
+            if hasattr(mw, "after_pipeline"):
+                try:
+                    patch = mw.after_pipeline(state)
+                    if patch and isinstance(patch, dict):
+                        state.update(patch)
+                except Exception:
+                    logger.exception("Middleware %s.after_pipeline failed", type(mw).__name__)
+        return state
+
     def wrap_node(
         self, node_name: str, fn: Callable[[Dict[str, Any]], Dict[str, Any]]
     ) -> Callable[[Dict[str, Any]], Dict[str, Any]]:
-        """包装节点函数，注入 before/after 中间件钩子。"""
+        """包装节点函数，注入 before/after/on_error 中间件钩子。"""
         middlewares = self.middlewares
 
         def wrapped(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -67,8 +129,29 @@ class MiddlewarePipeline:
                 except Exception:
                     logger.exception("Middleware %s.before_node failed for %s", type(mw).__name__, node_name)
 
-            # 执行原始节点
-            result = fn(current_state)
+            # 执行原始节点（带 on_error 降级）
+            start_time = time.time()
+            try:
+                result = fn(current_state)
+            except Exception as e:
+                # on_error 阶段：第一个处理成功的中间件生效
+                for mw in middlewares:
+                    if hasattr(mw, "on_error"):
+                        try:
+                            recovery = mw.on_error(current_state, node_name, e)
+                            if recovery is not None:
+                                current_state.update(recovery)
+                                result = current_state
+                                logger.warning("[%s] 降级处理 %s: %s", type(mw).__name__, node_name, e)
+                                break
+                        except Exception:
+                            logger.exception("Middleware %s.on_error failed for %s", type(mw).__name__, node_name)
+                else:
+                    raise  # 没有中间件处理，继续抛出
+
+            duration_ms = int((time.time() - start_time) * 1000)
+            if isinstance(result, dict):
+                result["_last_duration_ms"] = duration_ms
 
             # after 阶段：按注册顺序执行
             for mw in middlewares:
@@ -281,3 +364,87 @@ class ReducerMiddleware:
                 patch[field] = reducer(old_val, new_val)
 
         return patch if patch else None
+
+
+# ==================== 102.02：FeatureToggleMiddleware ====================
+
+
+# 功能开关映射表：节点名 → (环境变量, StyleProfile 属性)
+TOGGLE_MAP: Dict[str, tuple] = {
+    "humanizer": ("HUMANIZER_ENABLED", "enable_humanizer"),
+    "factcheck": ("FACTCHECK_ENABLED", "enable_fact_check"),
+    "text_cleanup": ("TEXT_CLEANUP_ENABLED", "enable_text_cleanup"),
+    "consistency_check_thread": ("THREAD_CHECK_ENABLED", "enable_thread_check"),
+    "consistency_check_voice": ("VOICE_CHECK_ENABLED", "enable_voice_check"),
+    "summary_generator": ("SUMMARY_GENERATOR_ENABLED", "enable_summary_gen"),
+    "section_evaluate": ("SECTION_EVAL_ENABLED", "enable_thread_check"),
+}
+
+
+class FeatureToggleMiddleware(ExtendedMiddleware):
+    """
+    统一功能开关中间件（102.02）— 替代各节点中散落的 _is_enabled() 检查。
+
+    通过 TOGGLE_MAP 声明式定义可选节点的开关，
+    在 before_node 中检查环境变量 + StyleProfile 双开关，
+    不满足条件时设置 _skip_node=True 标记。
+
+    环境变量开关：FEATURE_TOGGLE_ENABLED (default: true)
+    """
+
+    def __init__(self, style=None):
+        self.style = style
+
+    def before_node(self, state: Dict[str, Any], node_name: str) -> Optional[Dict[str, Any]]:
+        if os.getenv("FEATURE_TOGGLE_ENABLED", "true").lower() == "false":
+            return None
+
+        toggle = TOGGLE_MAP.get(node_name)
+        if not toggle:
+            return None  # 非可选节点，不拦截
+
+        env_key, style_attr = toggle
+        env_enabled = os.getenv(env_key, "true").lower() == "true"
+        style = self.style or state.get("_style_profile")
+        style_enabled = getattr(style, style_attr, True) if style else True
+
+        if not (env_enabled and style_enabled):
+            logger.info("[FeatureToggle] %s 已禁用，跳过", node_name)
+            return {"_skip_node": True}
+        return None
+
+
+# ==================== 102.02：GracefulDegradationMiddleware ====================
+
+
+# 可降级节点白名单及其默认返回值
+DEGRADABLE_NODES: Dict[str, Dict[str, Any]] = {
+    "factcheck": {},
+    "humanizer": {},
+    "text_cleanup": {},
+    "consistency_check_thread": {"thread_issues": []},
+    "consistency_check_voice": {"voice_issues": []},
+    "summary_generator": {},
+    "section_evaluate": {},
+}
+
+
+class GracefulDegradationMiddleware(ExtendedMiddleware):
+    """
+    统一降级中间件（102.02）— 替代各节点中散落的 try/except 和 @safe_run。
+
+    在 on_error 中检查节点是否在可降级白名单中，
+    是则返回默认值实现优雅降级，否则继续抛出异常。
+
+    环境变量开关：GRACEFUL_DEGRADATION_ENABLED (default: true)
+    """
+
+    def on_error(self, state: Dict[str, Any], node_name: str, error: Exception) -> Optional[Dict[str, Any]]:
+        if os.getenv("GRACEFUL_DEGRADATION_ENABLED", "true").lower() == "false":
+            return None
+
+        if node_name in DEGRADABLE_NODES:
+            defaults = DEGRADABLE_NODES[node_name]
+            logger.error("[GracefulDegradation] %s 异常，降级跳过: %s", node_name, error)
+            return defaults
+        return None  # 不处理，继续抛出
