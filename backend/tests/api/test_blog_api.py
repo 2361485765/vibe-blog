@@ -692,7 +692,7 @@ class TestEvaluateArticleAPI:
         mock_get_blog_svc.return_value = mock_blog_svc
 
         mock_db = MagicMock()
-        mock_db.get_blog.return_value = {
+        mock_db.get_history.return_value = {
             'id': 'blog-123',
             'markdown_content': '# Test\n\nContent',
             'topic': 'Test Topic',
@@ -713,7 +713,7 @@ class TestEvaluateArticleAPI:
     def test_evaluate_article_not_found(self, mock_get_db, client):
         """测试文章不存在返回 404"""
         mock_db = MagicMock()
-        mock_db.get_blog.return_value = None
+        mock_db.get_history.return_value = None
         mock_get_db.return_value = mock_db
 
         response = client.post('/api/blog/nonexistent/evaluate')
@@ -732,7 +732,7 @@ class TestEvaluateArticleAPI:
         mock_get_blog_svc.return_value = mock_blog_svc
 
         mock_db = MagicMock()
-        mock_db.get_blog.return_value = {
+        mock_db.get_history.return_value = {
             'id': 'blog-123',
             'markdown_content': '# Test',
             'topic': 'Test',
