@@ -18,6 +18,9 @@ All notable changes to the Vibe Blog project will be documented in this file.
 - ✨ **41.09 跨章节语义去重** — CrossSectionDeduplicator 基于 embedding 检测跨章节重复段落，自动删除后续重复内容，`CROSS_SECTION_DEDUP_ENABLED=true` 启用
 - ✨ **41.05 图片预规划** — ImagePreplanner 在大纲确认后生成全局图片计划，标记可预生成图片，`IMAGE_PREPLAN_ENABLED=true` 启用
 - ✨ **41.01 深度研究框架** — DeepResearchEngine 多轮迭代研究，LLM 分析知识缺口 + 自动补充搜索，`DEEP_RESEARCH_ENABLED=true` 启用
+- ✨ **41.16 PromptFamily 统一管理** — 按模型家族适配 Prompt 格式（Claude XML / OpenAI Markdown / Qwen 简洁），`PROMPT_FAMILY_ENABLED=true` 启用
+- ✨ **41.17 可插拔检索器** — BaseRetriever 统一接口 + RetrieverRegistry 注册表，内置 Serper/搜狗适配器，`RETRIEVER_REGISTRY_ENABLED=true` 启用
+- ✨ **41.18 工具增强 LLM** — ToolEnhancedLLM 让 LLM 在推理中自主调用搜索工具，`LLM_TOOLS_ENABLED=true` 启用
 - ✨ **75.10 搜索服务集成 + 死代码治理** — 将 75.02~75.09 各搜索服务统一接入 `init_blog_services()`
   - `init_blog_services()` 新增 Serper Google 搜索（75.02）和搜狗/腾讯云 SearchPro（75.07）初始化
   - 每个可选服务独立 try-except，一个失败不影响其他
