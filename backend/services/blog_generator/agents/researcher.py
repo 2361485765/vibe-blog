@@ -126,6 +126,19 @@ class ResearcherAgent:
                 logger.info("41.03 语义压缩器已启用")
             except Exception as e:
                 logger.warning(f"语义压缩器初始化失败: {e}")
+
+        # 41.01 深度研究引擎
+        self._deep_research_engine = None
+        if os.environ.get('DEEP_RESEARCH_ENABLED', 'false').lower() == 'true':
+            try:
+                from ..services.deep_research_engine import DeepResearchEngine
+                self._deep_research_engine = DeepResearchEngine(
+                    llm_client=llm_client,
+                    search_service=search_service,
+                )
+                logger.info("41.01 深度研究引擎已启用")
+            except Exception as e:
+                logger.warning(f"深度研究引擎初始化失败: {e}")
     
     def generate_search_queries(self, topic: str, target_audience: str) -> List[str]:
         """
@@ -692,6 +705,25 @@ class ResearcherAgent:
             # ✅ 无文档 → 完全走原有逻辑，零改动
             logger.info("📋 使用原有搜索模式（无文档上传）")
             logger.info(f"📋 将使用网络搜索结果生成博客内容")
+
+            # 41.01 深度研究：在初始搜索后迭代补充
+            if self._deep_research_engine and search_results:
+                logger.info("🔬 启动深度研究迭代...")
+                dr_result = self._deep_research_engine.run(
+                    topic=topic,
+                    target_audience=target_audience,
+                    initial_results=search_results,
+                )
+                search_results = dr_result['results']
+                state['deep_research_stats'] = {
+                    'rounds': dr_result['rounds'],
+                    'total_queries': dr_result['total_queries'],
+                    'coverage_score': dr_result['coverage_score'],
+                }
+                logger.info(
+                    f"🔬 深度研究完成: {dr_result['rounds']} 轮, "
+                    f"{len(search_results)} 条结果, 覆盖度 {dr_result['coverage_score']}%"
+                )
 
             # 41.03 语义压缩：在 summarize 前压缩搜索结果
             compressed_results = search_results
