@@ -6,6 +6,12 @@ All notable changes to the Vibe Blog project will be documented in this file.
 
 ## 2026-02-21
 
+### Added
+- ✨ **75.10 搜索服务集成 + 死代码治理** — 将 75.02~75.09 各搜索服务统一接入 `init_blog_services()`
+  - `init_blog_services()` 新增 Serper Google 搜索（75.02）和搜狗/腾讯云 SearchPro（75.07）初始化
+  - 每个可选服务独立 try-except，一个失败不影响其他
+  - 未配置 API Key 时优雅跳过，不抛异常
+
 ### Added (102 系列特性引入)
 - ✨ **102.10 八特性基础层** — 中间件管道、Reducer、结构化错误、追踪 ID、懒初始化、上下文预取、Token 预算（61 tests）
 - ✨ **102.07 容错恢复与上下文压缩** — 断点续写、上下文窗口压缩
@@ -26,12 +32,22 @@ All notable changes to the Vibe Blog project will be documented in this file.
 - ✨ **TaskLogMiddleware 节点耗时自动记录** — 利用 `wrap_node` 已有的 `_last_duration_ms`，在 `after_node` 中自动调用 `task_log.log_step()`，解决 BlogTaskLog.steps 始终为空的问题
 - ✨ **TokenTracker 自动归因** — 新增 `current_node_name` ContextVar，`wrap_node` 执行前自动设置节点名，LLMService `_resolve_caller()` 在 caller 为空时从 ContextVar 读取，解决所有 token 归到 "unknown" 的问题
 
+### Removed
+- 🗑️ **死代码清理（112.00 Phase 3-4）**
+  - 删除 `multi_round_searcher.py`（D4）— 已被 SearchCoordinator agent 替代
+  - 删除 `init_arxiv_service()` 冗余函数（D5）— `get_arxiv_service()` lazy-init 已足够
+  - 清理 `test_knowledge_gap.py` 中 MultiRoundSearcher 相关 import 和测试类
+
 ### Fixed
 - 🐛 **Humanizer 去 AI 味 100% 失败** — `_extract_json` 增加正则 `{...}` 兜底提取；`_rewrite_section` fallback key 从 `rewritten_content` 改为 `humanized_content`（与 `run()` 一致）；失败时记录 LLM 原始返回前 200 字符
 - 🐛 **非主线程 LLM 调用无超时保护** — 原 `signal.SIGALRM` 只在主线程工作，改用 `concurrent.futures.ThreadPoolExecutor` + `future.result(timeout)`，默认超时 600s→180s，重试 5→3
 - 🐛 **ThreadPoolExecutor 超时后阻塞** — context manager `shutdown(wait=True)` 导致超时后仍阻塞，改为手动管理 pool 生命周期，超时时 `shutdown(wait=False, cancel_futures=True)`
 
 ### Tests
+- ✅ **75.10 L1 生命周期测试**（7 个）— Serper/搜狗 init 验证、无 Key 优雅跳过、智谱不受影响
+- ✅ **75.10 E2E 验证测试**（10 个）— 真实实例创建、HTTP API 可达、死代码已清理、路由正确
+- ✅ **75.10 E2E Flask 应用测试**（3 个）— `create_app()` 启动验证、服务状态检查、`/api/blog/generate` 端到端
+- ✅ 75.10 全量回归 — 28 个相关测试全部通过，零回归
 - ✅ 全量单元测试 89 tests 通过（102 集成后精简）
 - ✅ 12/12 verify_102_features 检查通过
 - ✅ E2E 端到端博客生成验证通过（主题: OpenClaw Agent 执行框架，4 章节 4 配图）
