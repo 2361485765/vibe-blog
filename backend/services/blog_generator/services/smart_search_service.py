@@ -175,6 +175,12 @@ class SmartSearchService:
         # 71: SourceCurator 源质量评估与健康检查
         from .source_curator import SourceCurator
         self.curator = SourceCurator()
+        # 41.02: 源可信度筛选（与 SourceCurator 并列，形成两级过滤管线）
+        self._credibility_filter = None
+        if os.environ.get('SOURCE_CREDIBILITY_ENABLED', 'false').lower() == 'true' and llm_client:
+            from .source_credibility_filter import SourceCredibilityFilter
+            self._credibility_filter = SourceCredibilityFilter(llm_client)
+            logger.info("源可信度筛选已启用 (41.02)")
     
     def search(self, topic: str, article_type: str = '', max_results_per_source: int = 5) -> Dict[str, Any]:
         """
@@ -287,7 +293,13 @@ class SmartSearchService:
         
         # 第三步：合并去重
         merged_results = self._merge_and_dedupe(all_results)
-        
+
+        # 第四步：41.02 源可信度筛选（LLM 四维评估）
+        if self._credibility_filter and merged_results:
+            merged_results = self._credibility_filter.curate(
+                query=topic, search_results=merged_results,
+            )
+
         logger.info(f"🧠 智能搜索完成: 共 {len(merged_results)} 条结果")
         
         return {
