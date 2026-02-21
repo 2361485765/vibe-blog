@@ -16,9 +16,26 @@ All notable changes to the Vibe Blog project will be documented in this file.
 - ✨ **102.03 持久化记忆系统** — 跨会话记忆存储与检索（32 tests）
 - 📋 **E2E 博客生成验证流程文档** — `.claude/E2E-TESTING.md`，涵盖前端交互（TipTap）、API、SSE 监控、大纲确认、完整管线阶段
 
+### Added (102 系列主流程集成)
+- ✨ **孤岛特性集成** — 5 个 102 系列模块从孤岛代码接入 generator.py / blog_service.py / writer.py 主流程
+  - P0: `atomic_write` 替换 `_save_markdown` 和 `memory/storage.save` 的裸写入
+  - P1: `WritingSkillManager` 写作方法论注入（generator 初始化 → planner 匹配技能 → writer 注入 prompt，`WRITING_SKILL_ENABLED=true`）
+  - P2: `fix_dangling_tool_calls` 在 `_run_resume` 前检查并修复悬挂工具调用
+  - P3: `MemoryStorage` 用户记忆注入（`MEMORY_ENABLED=false` 默认关）
+  - P4: `ToolRegistry` + 6 个适配器（zhipu/serper/sogou/arxiv/jina/httpx_crawl），researcher 可选配置驱动工具（`TOOL_REGISTRY_ENABLED=false` 默认关）
+- ✨ **TaskLogMiddleware 节点耗时自动记录** — 利用 `wrap_node` 已有的 `_last_duration_ms`，在 `after_node` 中自动调用 `task_log.log_step()`，解决 BlogTaskLog.steps 始终为空的问题
+- ✨ **TokenTracker 自动归因** — 新增 `current_node_name` ContextVar，`wrap_node` 执行前自动设置节点名，LLMService `_resolve_caller()` 在 caller 为空时从 ContextVar 读取，解决所有 token 归到 "unknown" 的问题
+
+### Fixed
+- 🐛 **Humanizer 去 AI 味 100% 失败** — `_extract_json` 增加正则 `{...}` 兜底提取；`_rewrite_section` fallback key 从 `rewritten_content` 改为 `humanized_content`（与 `run()` 一致）；失败时记录 LLM 原始返回前 200 字符
+- 🐛 **非主线程 LLM 调用无超时保护** — 原 `signal.SIGALRM` 只在主线程工作，改用 `concurrent.futures.ThreadPoolExecutor` + `future.result(timeout)`，默认超时 600s→180s，重试 5→3
+- 🐛 **ThreadPoolExecutor 超时后阻塞** — context manager `shutdown(wait=True)` 导致超时后仍阻塞，改为手动管理 pool 生命周期，超时时 `shutdown(wait=False, cancel_futures=True)`
+
 ### Tests
-- ✅ 全量单元测试 141 tests 通过
+- ✅ 全量单元测试 89 tests 通过（102 集成后精简）
+- ✅ 12/12 verify_102_features 检查通过
 - ✅ E2E 端到端博客生成验证通过（主题: OpenClaw Agent 执行框架，4 章节 4 配图）
+- ✅ E2E mini 博客生成验证通过（主题: Git rebase 实战技巧），task log JSON 确认 step 级耗时记录正常
 
 ---
 
