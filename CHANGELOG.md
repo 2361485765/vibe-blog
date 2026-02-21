@@ -13,6 +13,7 @@ All notable changes to the Vibe Blog project will be documented in this file.
 - ✨ **41.04 子查询并行研究** — SubQueryEngine LLM 生成 N 个语义互补子查询 + ThreadPoolExecutor 并行搜索，三级降级（LLM+context → LLM → 硬编码），`SUB_QUERY_ENABLED=true` 启用
 - ✨ **41.10 动态 Agent 角色** — AgentPersona 预设人设库（tech_expert/finance_analyst/education_specialist/science_writer），通过 StyleProfile.persona_key 注入，`AGENT_PERSONA_ENABLED=true` 启用
 - ✨ **41.11 Guidelines 驱动审核** — 按文章类型注入自定义审核标准（tutorial/science_popular/deep_analysis），ReviewerAgent 支持 guidelines 参数，`REVIEW_GUIDELINES_ENABLED=true` 启用
+- ✨ **41.08 成本追踪增强** — CostTracker 实时 USD 成本估算 + 预算熔断器（warn/abort），集成 GlobalRateLimiter 指标聚合，`COST_TRACKING_ENABLED=true` 启用，`COST_BUDGET_USD` 设置预算上限
 - ✨ **75.10 搜索服务集成 + 死代码治理** — 将 75.02~75.09 各搜索服务统一接入 `init_blog_services()`
   - `init_blog_services()` 新增 Serper Google 搜索（75.02）和搜狗/腾讯云 SearchPro（75.07）初始化
   - 每个可选服务独立 try-except，一个失败不影响其他

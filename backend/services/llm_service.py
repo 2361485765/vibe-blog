@@ -416,6 +416,17 @@ class LLMService:
                 token_usage.provider = self.provider_format
                 self.token_tracker.record(token_usage, agent=_resolve_caller(caller))
 
+                # 41.08 成本追踪
+                if hasattr(self, '_cost_tracker') and self._cost_tracker:
+                    self._cost_tracker.record_call(
+                        input_tokens=token_usage.input_tokens,
+                        output_tokens=token_usage.output_tokens,
+                        cache_read_tokens=token_usage.cache_read_tokens,
+                        cache_write_tokens=token_usage.cache_write_tokens,
+                        model=model_name,
+                        agent=_resolve_caller(caller),
+                    )
+
             return content
 
         except ContextLengthExceeded as e:

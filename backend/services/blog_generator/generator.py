@@ -1065,12 +1065,18 @@ class BlogGenerator:
 
         # 创建 Token 追踪器并注入 LLMService
         token_tracker = None
+        cost_tracker = None
         try:
             import os
             if os.environ.get('TOKEN_TRACKING_ENABLED', 'true').lower() == 'true':
                 from utils.token_tracker import TokenTracker
                 token_tracker = TokenTracker()
                 self.llm.token_tracker = token_tracker
+            # 41.08 成本追踪增强
+            if os.environ.get('COST_TRACKING_ENABLED', 'false').lower() == 'true':
+                from utils.cost_tracker import CostTracker
+                cost_tracker = CostTracker()
+                self.llm._cost_tracker = cost_tracker
         except Exception:
             pass
 
@@ -1133,6 +1139,12 @@ class BlogGenerator:
                 logger.info(token_tracker.format_summary())
                 token_summary = token_tracker.get_summary()
 
+            # 41.08 成本摘要
+            cost_summary = None
+            if cost_tracker:
+                logger.info(cost_tracker.format_summary())
+                cost_summary = cost_tracker.get_summary()
+
             # 完成任务日志
             if task_log:
                 task_log.complete(
@@ -1163,6 +1175,8 @@ class BlogGenerator:
             }
             if token_summary:
                 result["token_summary"] = token_summary
+            if cost_summary:
+                result["cost_summary"] = cost_summary
 
             # 37.14/37.16 博客衍生物生成（Skill 后处理）
             derivatives = self._run_derivative_skills(final_state)
