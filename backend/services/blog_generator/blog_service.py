@@ -557,6 +557,9 @@ class BlogService:
                     target_length=target_length,
                 )
                 self.generator.task_log = task_log
+                # 注入到中间件，自动记录每个节点耗时
+                if hasattr(self.generator, '_task_log_middleware'):
+                    self.generator._task_log_middleware.set_task_log(task_log)
         except Exception:
             pass
 

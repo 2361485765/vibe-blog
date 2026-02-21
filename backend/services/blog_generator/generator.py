@@ -30,6 +30,8 @@ from .agents.summary_generator import SummaryGeneratorAgent
 from .middleware import (
     MiddlewarePipeline, TracingMiddleware, ReducerMiddleware,
     ErrorTrackingMiddleware, TokenBudgetMiddleware, ContextPrefetchMiddleware,
+    TaskLogMiddleware,
+    ErrorTrackingMiddleware, TokenBudgetMiddleware, ContextPrefetchMiddleware,
 )
 from .parallel import ParallelTaskExecutor, TaskConfig
 import uuid
@@ -133,8 +135,10 @@ class BlogGenerator:
                 logger.warning(f"分层架构校验初始化失败: {e}")
 
         # 102.10 迁移：中间件管道
+        self._task_log_middleware = TaskLogMiddleware()
         self.pipeline = MiddlewarePipeline(middlewares=[
             TracingMiddleware(),
+            self._task_log_middleware,
             ReducerMiddleware(),
             ErrorTrackingMiddleware(),
             TokenBudgetMiddleware(
@@ -1077,6 +1081,8 @@ class BlogGenerator:
                     target_length=target_length,
                 )
                 self.task_log = task_log
+                # 注入到中间件，自动记录每个节点耗时
+                self._task_log_middleware.set_task_log(task_log)
         except Exception:
             pass
 

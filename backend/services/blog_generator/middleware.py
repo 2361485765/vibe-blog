@@ -448,3 +448,38 @@ class GracefulDegradationMiddleware(ExtendedMiddleware):
             logger.error("[GracefulDegradation] %s 异常，降级跳过: %s", node_name, error)
             return defaults
         return None  # 不处理，继续抛出
+
+
+# ==================== TaskLogMiddleware ====================
+
+
+class TaskLogMiddleware:
+    """
+    任务日志中间件 — 自动记录每个节点的执行耗时到 BlogTaskLog。
+
+    利用 wrap_node 已计算的 _last_duration_ms，在 after_node 中
+    调用 task_log.log_step() 写入结构化日志。生成结束后 task log JSON
+    中即包含完整的 step 级耗时分解。
+
+    需要在 generator 中通过 set_task_log() 注入 BlogTaskLog 实例。
+    """
+
+    def __init__(self):
+        self._task_log = None
+
+    def set_task_log(self, task_log):
+        self._task_log = task_log
+
+    def before_node(self, state: Dict[str, Any], node_name: str) -> Optional[Dict[str, Any]]:
+        return None
+
+    def after_node(self, state: Dict[str, Any], node_name: str) -> Optional[Dict[str, Any]]:
+        if not self._task_log:
+            return None
+        duration_ms = state.get("_last_duration_ms", 0)
+        self._task_log.log_step(
+            agent=node_name,
+            action="node_complete",
+            duration_ms=duration_ms,
+        )
+        return None
