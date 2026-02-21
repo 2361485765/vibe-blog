@@ -216,6 +216,7 @@ class BlogGenerator:
         workflow.add_node("questioner", self.pipeline.wrap_node("questioner", self._questioner_node))
         workflow.add_node("deepen_content", self.pipeline.wrap_node("deepen_content", self._deepen_content_node))
         workflow.add_node("coder_and_artist", self.pipeline.wrap_node("coder_and_artist", self._coder_and_artist_node))  # 并行节点
+        workflow.add_node("cross_section_dedup", self.pipeline.wrap_node("cross_section_dedup", self._cross_section_dedup_node))  # 41.09 跨章节去重
         workflow.add_node("section_evaluate", self.pipeline.wrap_node("section_evaluate", self._section_evaluate_node))  # 段落评估
         workflow.add_node("section_improve", self.pipeline.wrap_node("section_improve", self._section_improve_node))  # 段落改进
         workflow.add_node("consistency_check", self.pipeline.wrap_node("consistency_check", self._consistency_check_node))  # 一致性检查
@@ -272,7 +273,8 @@ class BlogGenerator:
         workflow.add_edge("section_improve", "section_evaluate")  # 改进后重新评估
         
         # Coder 和 Artist 并行执行（通过单个节点内部并行实现）
-        workflow.add_edge("coder_and_artist", "consistency_check")
+        workflow.add_edge("coder_and_artist", "cross_section_dedup")
+        workflow.add_edge("cross_section_dedup", "consistency_check")
         workflow.add_edge("consistency_check", "reviewer")
         
         # 条件边：审核后决定是修订还是进入去 AI 味
@@ -813,6 +815,22 @@ class BlogGenerator:
                         break
             else:
                 logger.error(f"章节修订失败: {r.error}")
+
+    def _cross_section_dedup_node(self, state: SharedState) -> SharedState:
+        """41.09 跨章节语义去重节点"""
+        if os.environ.get('CROSS_SECTION_DEDUP_ENABLED', 'false').lower() != 'true':
+            return state
+        sections = state.get('sections', [])
+        if len(sections) < 2:
+            return state
+        logger.info("=== Step 5.5: 跨章节语义去重 ===")
+        try:
+            from .cross_section_dedup import CrossSectionDeduplicator
+            dedup = CrossSectionDeduplicator(llm_client=self.llm)
+            state['sections'] = dedup.deduplicate(sections)
+        except Exception as e:
+            logger.warning(f"[Dedup] 异常，跳过去重: {e}")
+        return state
 
     def _consistency_check_node(self, state: SharedState) -> SharedState:
         """一致性检查节点（102.01 迁移：使用 ParallelTaskExecutor）"""
