@@ -171,6 +171,11 @@ class WriterAgent:
         writing_skill_prompt = kwargs.get('_writing_skill_prompt', '')
         if writing_skill_prompt:
             prompt = writing_skill_prompt + "\n\n" + prompt
+
+        # 41.10: 动态 Agent 角色注入
+        persona_prompt = kwargs.get('_persona_prompt', '')
+        if persona_prompt:
+            prompt = persona_prompt + "\n\n" + prompt
         
         # 输出完整的 Writer Prompt 到日志（用于诊断）
         logger.info(f"[Writer] ========== 章节 Prompt ({len(prompt)} 字): {section_outline.get('title', 'Unknown')} ==========")
@@ -438,6 +443,7 @@ class WriterAgent:
                 'template': state.get('writing_template'),  # 37.13
                 'style': state.get('writing_style'),  # 37.13
                 '_writing_skill_prompt': state.get('_writing_skill_prompt', ''),  # 102.06
+                '_persona_prompt': state.get('_persona_prompt', ''),  # 41.10
             })
         
         # 使用环境变量配置或传入的参数

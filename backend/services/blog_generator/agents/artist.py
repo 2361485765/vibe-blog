@@ -715,15 +715,27 @@ class ArtistAgent:
         # 第一步：收集所有图片生成任务，预先分配 ID 和顺序索引
         tasks = []
         image_id_counter = 1
-        
+
+        # 41.05: 读取图片预规划（如果存在）
+        image_preplan = state.get('image_preplan', [])
+        preplan_by_section = {}
+        if image_preplan:
+            for plan_item in image_preplan:
+                sid = plan_item.get('section_id', '')
+                if sid:
+                    preplan_by_section[str(sid)] = plan_item
+            logger.info(f"[41.05] 使用图片预规划: {len(image_preplan)} 张")
+
         # 1. 从大纲中收集配图任务
         article_title = state.get('topic', '')  # 获取文章标题
         for i, section_outline in enumerate(sections_outline):
-            image_type = section_outline.get('image_type', 'none')
+            # 41.05: 优先使用预规划的图片类型和描述
+            preplan_item = preplan_by_section.get(str(i), preplan_by_section.get(section_outline.get('id', ''), {}))
+            image_type = preplan_item.get('image_type') or section_outline.get('image_type', 'none')
             if image_type == 'none':
                 continue
-            
-            image_description = section_outline.get('image_description', '')
+
+            image_description = preplan_item.get('description') or section_outline.get('image_description', '')
             section_title = section_outline.get('title', '')
             
             section_content = ""

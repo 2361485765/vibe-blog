@@ -134,6 +134,20 @@ class ReviewerAgent:
         verbatim_data = state.get('verbatim_data', [])
         learning_objectives = state.get('learning_objectives', [])
 
+        # 41.11: 从 state 获取审核标准（StyleProfile 或按文章类型自动匹配）
+        guidelines = state.get('review_guidelines')
+        if not guidelines:
+            import os
+            if os.environ.get('REVIEW_GUIDELINES_ENABLED', 'false').lower() == 'true':
+                try:
+                    from ..review_guidelines import get_guidelines
+                    article_type = state.get('article_type', '')
+                    guidelines = get_guidelines(article_type)
+                    if guidelines:
+                        logger.info(f"[Reviewer] 41.11 自动匹配审核标准: {article_type} ({len(guidelines)} 条)")
+                except Exception as e:
+                    logger.debug(f"[Reviewer] 审核标准加载跳过: {e}")
+
         if verbatim_data:
             logger.info(f"[Reviewer] Verbatim 数据: {len(verbatim_data)} 项")
         if learning_objectives:
@@ -144,6 +158,7 @@ class ReviewerAgent:
             outline,
             verbatim_data=verbatim_data,
             learning_objectives=learning_objectives,
+            guidelines=guidelines,
         )
 
         state['review_score'] = result.get('score', 80)

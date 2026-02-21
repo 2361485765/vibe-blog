@@ -383,6 +383,13 @@ class BlogGenerator:
             except Exception as e:
                 logger.debug(f"用户记忆注入跳过: {e}")
 
+        # 41.10: 注入人设 Prompt 到 state（供 Writer 使用）
+        style = self._get_style(state)
+        persona_prompt = style.get_persona_prompt()
+        if persona_prompt:
+            state['_persona_prompt'] = persona_prompt
+            logger.info(f"[41.10] 注入人设 Prompt: {persona_prompt[:60]}...")
+
         before_count = _get_content_word_count(state)
         result = self.writer.run(state)
         after_count = _get_content_word_count(result)

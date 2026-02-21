@@ -21,6 +21,11 @@ All notable changes to the Vibe Blog project will be documented in this file.
 - ✨ **41.16 PromptFamily 统一管理** — 按模型家族适配 Prompt 格式（Claude XML / OpenAI Markdown / Qwen 简洁），`PROMPT_FAMILY_ENABLED=true` 启用
 - ✨ **41.17 可插拔检索器** — BaseRetriever 统一接口 + RetrieverRegistry 注册表，内置 Serper/搜狗适配器，`RETRIEVER_REGISTRY_ENABLED=true` 启用
 - ✨ **41.18 工具增强 LLM** — ToolEnhancedLLM 让 LLM 在推理中自主调用搜索工具，`LLM_TOOLS_ENABLED=true` 启用
+
+### Fixed
+- 🐛 **41.11 Guidelines 审核孤岛修复** — `reviewer.run()` 现在自动按文章类型匹配审核标准并传入 `guidelines` 参数，连通 `get_guidelines()` 调用链
+- 🐛 **41.10 动态角色孤岛修复** — `_writer_node` 注入 `StyleProfile.get_persona_prompt()` 到 state，Writer 消费 `_persona_prompt` 注入到 Prompt
+- 🐛 **41.05 图片预规划孤岛修复** — ArtistAgent 读取 `state['image_preplan']`，优先使用预规划的图片类型和描述覆盖大纲默认值
 - ✨ **75.10 搜索服务集成 + 死代码治理** — 将 75.02~75.09 各搜索服务统一接入 `init_blog_services()`
   - `init_blog_services()` 新增 Serper Google 搜索（75.02）和搜狗/腾讯云 SearchPro（75.07）初始化
   - 每个可选服务独立 try-except，一个失败不影响其他
