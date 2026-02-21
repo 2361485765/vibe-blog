@@ -268,11 +268,15 @@ class TestMiniModeCorrectSection:
         from services.blog_generator.generator import BlogGenerator
 
         generator = BlogGenerator.__new__(BlogGenerator)
-        source = inspect.getsource(generator._revision_node)
 
-        # 验证 correct_only 策略使用 correct_section（mini/short 通过 StyleProfile 映射）
-        assert "correct_section" in source
-        assert "revision_strategy" in source
+        # _revision_node 委托给 _revision_correct_only（correct_only 策略）
+        source_node = inspect.getsource(generator._revision_node)
+        assert "revision_strategy" in source_node
+        assert "correct_only" in source_node
+
+        # _revision_correct_only 中实际调用 correct_section
+        source_correct = inspect.getsource(generator._revision_correct_only)
+        assert "correct_section" in source_correct
 
 
 class TestInitialState:

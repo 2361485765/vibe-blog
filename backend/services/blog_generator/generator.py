@@ -6,13 +6,6 @@ import logging
 import os
 from typing import Dict, Any, Optional, Literal, Callable
 
-
-def _should_use_parallel():
-    """判断是否应该使用并行执行。当开启追踪时禁用并行，避免上下文丢失。"""
-    if os.environ.get('TRACE_ENABLED', 'false').lower() == 'true':
-        return False
-    return True
-
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import interrupt
@@ -34,6 +27,14 @@ from .agents.thread_checker import ThreadCheckerAgent
 from .agents.voice_checker import VoiceCheckerAgent
 from .agents.factcheck import FactCheckAgent
 from .agents.summary_generator import SummaryGeneratorAgent
+from .middleware import (
+    MiddlewarePipeline, TracingMiddleware, ReducerMiddleware,
+    ErrorTrackingMiddleware, TokenBudgetMiddleware, ContextPrefetchMiddleware,
+    TaskLogMiddleware,
+    ErrorTrackingMiddleware, TokenBudgetMiddleware, ContextPrefetchMiddleware,
+)
+from .parallel import ParallelTaskExecutor, TaskConfig
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +134,47 @@ class BlogGenerator:
             except Exception as e:
                 logger.warning(f"分层架构校验初始化失败: {e}")
 
+        # 102.10 迁移：中间件管道
+        self._task_log_middleware = TaskLogMiddleware()
+        self.pipeline = MiddlewarePipeline(middlewares=[
+            TracingMiddleware(),
+            self._task_log_middleware,
+            ReducerMiddleware(),
+            ErrorTrackingMiddleware(),
+            TokenBudgetMiddleware(
+                compressor=getattr(self, '_context_compressor', None),
+                token_tracker=getattr(self, '_token_tracker', None),
+            ),
+            ContextPrefetchMiddleware(
+                knowledge_service=knowledge_service,
+            ),
+        ])
+
+        # 102.01 迁移：统一并行任务执行引擎
+        self.executor = ParallelTaskExecutor()
+
+        # 102.06 迁移：写作方法论技能管理器
+        self._writing_skill_manager = None
+        if os.getenv('WRITING_SKILL_ENABLED', 'true').lower() == 'true':
+            try:
+                from .skills.writing_skill_manager import WritingSkillManager
+                self._writing_skill_manager = WritingSkillManager()
+                self._writing_skill_manager.load()
+                logger.info("102.06 WritingSkillManager 已启用")
+            except Exception as e:
+                logger.warning(f"WritingSkillManager 初始化失败: {e}")
+
+        # 102.03 迁移：用户记忆存储
+        self._memory_storage = None
+        if os.getenv('MEMORY_ENABLED', 'false').lower() == 'true':
+            try:
+                from .memory import MemoryStorage, BlogMemoryConfig
+                mem_config = BlogMemoryConfig.from_env()
+                self._memory_storage = MemoryStorage(storage_path=mem_config.storage_path)
+                logger.info("102.03 MemoryStorage 已启用")
+            except Exception as e:
+                logger.warning(f"MemoryStorage 初始化失败: {e}")
+
         # 构建工作流
         self.workflow = self._build_workflow()
         self.app = None
@@ -157,28 +199,28 @@ class BlogGenerator:
         """
         workflow = StateGraph(SharedState)
         
-        # 添加节点
-        workflow.add_node("researcher", self._researcher_node)
-        workflow.add_node("planner", self._planner_node)
-        workflow.add_node("writer", self._writer_node)
+        # 添加节点（102.10 迁移：通过中间件管道包装）
+        workflow.add_node("researcher", self.pipeline.wrap_node("researcher", self._researcher_node))
+        workflow.add_node("planner", self.pipeline.wrap_node("planner", self._planner_node))
+        workflow.add_node("writer", self.pipeline.wrap_node("writer", self._writer_node))
         # 多轮搜索相关节点
-        workflow.add_node("check_knowledge", self._check_knowledge_node)
-        workflow.add_node("refine_search", self._refine_search_node)
-        workflow.add_node("enhance_with_knowledge", self._enhance_with_knowledge_node)
+        workflow.add_node("check_knowledge", self.pipeline.wrap_node("check_knowledge", self._check_knowledge_node))
+        workflow.add_node("refine_search", self.pipeline.wrap_node("refine_search", self._refine_search_node))
+        workflow.add_node("enhance_with_knowledge", self.pipeline.wrap_node("enhance_with_knowledge", self._enhance_with_knowledge_node))
         # 追问和审核节点
-        workflow.add_node("questioner", self._questioner_node)
-        workflow.add_node("deepen_content", self._deepen_content_node)
-        workflow.add_node("coder_and_artist", self._coder_and_artist_node)  # 并行节点
-        workflow.add_node("section_evaluate", self._section_evaluate_node)  # 段落评估
-        workflow.add_node("section_improve", self._section_improve_node)  # 段落改进
-        workflow.add_node("consistency_check", self._consistency_check_node)  # 一致性检查
-        workflow.add_node("reviewer", self._reviewer_node)
-        workflow.add_node("revision", self._revision_node)
-        workflow.add_node("factcheck", self._factcheck_node)
-        workflow.add_node("text_cleanup", self._text_cleanup_node)
-        workflow.add_node("humanizer", self._humanizer_node)
-        workflow.add_node("assembler", self._assembler_node)
-        workflow.add_node("summary_generator", self._summary_generator_node)
+        workflow.add_node("questioner", self.pipeline.wrap_node("questioner", self._questioner_node))
+        workflow.add_node("deepen_content", self.pipeline.wrap_node("deepen_content", self._deepen_content_node))
+        workflow.add_node("coder_and_artist", self.pipeline.wrap_node("coder_and_artist", self._coder_and_artist_node))  # 并行节点
+        workflow.add_node("section_evaluate", self.pipeline.wrap_node("section_evaluate", self._section_evaluate_node))  # 段落评估
+        workflow.add_node("section_improve", self.pipeline.wrap_node("section_improve", self._section_improve_node))  # 段落改进
+        workflow.add_node("consistency_check", self.pipeline.wrap_node("consistency_check", self._consistency_check_node))  # 一致性检查
+        workflow.add_node("reviewer", self.pipeline.wrap_node("reviewer", self._reviewer_node))
+        workflow.add_node("revision", self.pipeline.wrap_node("revision", self._revision_node))
+        workflow.add_node("factcheck", self.pipeline.wrap_node("factcheck", self._factcheck_node))
+        workflow.add_node("text_cleanup", self.pipeline.wrap_node("text_cleanup", self._text_cleanup_node))
+        workflow.add_node("humanizer", self.pipeline.wrap_node("humanizer", self._humanizer_node))
+        workflow.add_node("assembler", self.pipeline.wrap_node("assembler", self._assembler_node))
+        workflow.add_node("summary_generator", self.pipeline.wrap_node("summary_generator", self._summary_generator_node))
         
         # 定义边
         workflow.add_edge(START, "researcher")
@@ -287,12 +329,37 @@ class BlogGenerator:
             else:
                 logger.info("大纲已被用户确认")
 
+        # 102.06: 匹配写作技能，注入到 state 供 writer 使用
+        if self._writing_skill_manager:
+            try:
+                topic = state.get('topic', '')
+                article_type = state.get('article_type', '')
+                skill = self._writing_skill_manager.match_skill(topic, article_type)
+                if skill:
+                    result['_writing_skill_prompt'] = self._writing_skill_manager.build_system_prompt_section(skill)
+                    logger.info(f"匹配写作技能: {skill.name}")
+            except Exception as e:
+                logger.debug(f"写作技能匹配跳过: {e}")
+
         return result
     
     def _writer_node(self, state: SharedState) -> SharedState:
         """内容撰写节点"""
         logger.info("=== Step 3: 内容撰写 ===")
         self._validate_layer("content", state)
+
+        # 102.03: 注入用户记忆到 background_knowledge
+        if self._memory_storage:
+            try:
+                user_id = state.get('user_id', 'default')
+                memory_injection = self._memory_storage.format_for_injection(user_id)
+                if memory_injection:
+                    bg = state.get('background_knowledge', '')
+                    state['background_knowledge'] = bg + "\n\n" + memory_injection if bg else memory_injection
+                    logger.info(f"注入用户记忆: {len(memory_injection)} 字符")
+            except Exception as e:
+                logger.debug(f"用户记忆注入跳过: {e}")
+
         before_count = _get_content_word_count(state)
         result = self.writer.run(state)
         after_count = _get_content_word_count(result)
@@ -326,85 +393,63 @@ class BlogGenerator:
         return state
     
     def _enhance_with_knowledge_node(self, state: SharedState) -> SharedState:
-        """基于新知识增强内容节点（并行）"""
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        import os
-        
+        """基于新知识增强内容节点（102.01 迁移：使用 ParallelTaskExecutor）"""
         logger.info("=== Step 3.7: 知识增强 ===")
-        
+
         sections = state.get('sections', [])
         gaps = state.get('knowledge_gaps', [])
         new_knowledge = state.get('accumulated_knowledge', '')
-        
+
         if not gaps or not new_knowledge:
             logger.info("没有需要增强的内容")
             return state
-        
+
         from .prompts import get_prompt_manager
         pm = get_prompt_manager()
-        
-        # 第一步：收集需要增强的任务
-        tasks = []
+
+        # 收集需要增强的任务
+        enhance_items = []
         for section in sections:
             section_gaps = [g for g in gaps if not g.get('section_id') or g.get('section_id') == section.get('id')]
-            
             if section_gaps:
-                tasks.append({
-                    'section': section,
-                    'section_gaps': section_gaps,
-                    'new_knowledge': new_knowledge
-                })
-        
-        if not tasks:
+                enhance_items.append((section, section_gaps))
+
+        if not enhance_items:
             logger.info("没有需要增强的章节")
             state['knowledge_gaps'] = []
             return state
-        
-        max_workers = int(os.environ.get('BLOG_GENERATOR_MAX_WORKERS', '3'))
-        logger.info(f"开始知识增强: {len(tasks)} 个章节，使用 {min(max_workers, len(tasks))} 个并行线程")
-        
-        # 第二步：并行增强
-        def enhance_task(task):
-            """单个章节增强任务"""
-            section = task['section']
-            try:
-                prompt = pm.render_writer_enhance_with_knowledge(
-                    original_content=section.get('content', ''),
-                    new_knowledge=task['new_knowledge'],
-                    knowledge_gaps=task['section_gaps']
-                )
-                
-                enhanced_content = self.writer.llm.chat(
-                    messages=[{"role": "user", "content": prompt}]
-                )
-                return {
-                    'success': True,
-                    'section': section,
-                    'enhanced_content': enhanced_content
-                }
-            except Exception as e:
-                logger.error(f"章节增强失败 [{section.get('title', '')}]: {e}")
-                return {
-                    'success': False,
-                    'section': section,
-                    'error': str(e)
-                }
-        
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(enhance_task, task): task for task in tasks}
-            
-            for future in as_completed(futures):
-                result = future.result()
-                if result['success']:
-                    result['section']['content'] = result['enhanced_content']
-                    logger.info(f"章节增强完成: {result['section'].get('title', '')}")
-        
-        enhanced_count = sum(1 for t in tasks if t['section'].get('content'))
+
+        def enhance_single(section, section_gaps):
+            prompt = pm.render_writer_enhance_with_knowledge(
+                original_content=section.get('content', ''),
+                new_knowledge=new_knowledge,
+                knowledge_gaps=section_gaps,
+            )
+            return self.writer.llm.chat(messages=[{"role": "user", "content": prompt}])
+
+        tasks = [
+            {
+                "name": f"增强-{section.get('title', '')}",
+                "fn": enhance_single,
+                "args": (section, section_gaps),
+            }
+            for section, section_gaps in enhance_items
+        ]
+
+        results = self.executor.run_parallel(tasks, config=TaskConfig(
+            name="knowledge_enhance", timeout_seconds=120,
+        ))
+
+        for i, r in enumerate(results):
+            if r.success:
+                enhance_items[i][0]['content'] = r.result
+                logger.info(f"章节增强完成: {enhance_items[i][0].get('title', '')}")
+            else:
+                logger.error(f"章节增强失败: {r.error}")
+
+        enhanced_count = sum(1 for r in results if r.success)
         logger.info(f"知识增强完成: {enhanced_count} 个章节")
-        
-        # 清空已处理的知识空白
         state['knowledge_gaps'] = []
-        
         return state
     
     
@@ -415,119 +460,60 @@ class BlogGenerator:
         return self.questioner.run(state)
     
     def _deepen_content_node(self, state: SharedState) -> SharedState:
-        """内容深化节点（并行）"""
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        import os
-        
+        """内容深化节点（102.01 迁移：使用 ParallelTaskExecutor）"""
         logger.info("=== Step 4.1: 内容深化 ===")
         before_count = _get_content_word_count(state)
         state['questioning_count'] = state.get('questioning_count', 0) + 1
-        
-        # 统计需要深化的章节
+
         sections_to_deepen = [
             r for r in state.get('question_results', [])
             if not r.get('is_detailed_enough', True)
         ]
         total_to_deepen = len(sections_to_deepen)
-        
+
         if total_to_deepen == 0:
             logger.info("没有需要深化的章节")
             return state
-        
-        max_workers = int(os.environ.get('BLOG_GENERATOR_MAX_WORKERS', '3'))
-        use_parallel = _should_use_parallel()
-        
-        if use_parallel:
-            logger.info(f"开始深化 {total_to_deepen} 个章节，使用 {min(max_workers, total_to_deepen)} 个并行线程")
-        else:
-            logger.info(f"开始深化 {total_to_deepen} 个章节，使用串行模式（追踪已启用）")
-        
-        # 准备任务列表
+
+        # 构建任务列表
         tasks = []
         for idx, result in enumerate(sections_to_deepen, 1):
             section_id = result.get('section_id', '')
             vague_points = result.get('vague_points', [])
-            
-            # 找到对应章节
+
             for section in state.get('sections', []):
                 if section.get('id') == section_id:
+                    section_title = section.get('title', section_id)
+                    progress_info = f"[{idx}/{total_to_deepen}]"
                     tasks.append({
-                        'order_idx': idx - 1,
-                        'section': section,
-                        'section_id': section_id,
-                        'vague_points': vague_points,
-                        'progress_info': f"[{idx}/{total_to_deepen}]"
+                        "name": f"深化-{section_title}",
+                        "fn": self.writer.enhance_section,
+                        "kwargs": {
+                            "original_content": section.get('content', ''),
+                            "vague_points": vague_points,
+                            "section_title": section_title,
+                            "progress_info": progress_info,
+                        },
+                        "_section_id": section_id,
                     })
                     break
-        
-        # 执行深化
-        def enhance_single_task(task):
-            """单个章节深化任务"""
-            try:
-                section = task['section']
-                section_title = section.get('title', task['section_id'])
-                original_length = len(section.get('content', ''))
-                
-                enhanced_content = self.writer.enhance_section(
-                    original_content=section.get('content', ''),
-                    vague_points=task['vague_points'],
-                    section_title=section_title,
-                    progress_info=task['progress_info']
-                )
-                
-                new_length = len(enhanced_content)
-                logger.info(f"章节深化完成: {section_title} (+{new_length - original_length} 字)")
-                
-                return {
-                    'success': True,
-                    'section_id': task['section_id'],
-                    'enhanced_content': enhanced_content
-                }
-            except Exception as e:
-                logger.error(f"章节深化失败 [{task['section_id']}]: {e}")
-                return {
-                    'success': False,
-                    'section_id': task['section_id'],
-                    'enhanced_content': None
-                }
-        
-        if use_parallel:
-            # 并行执行
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = {executor.submit(enhance_single_task, task): task for task in tasks}
-                
-                for future in as_completed(futures):
-                    result = future.result()
-                    if result['success']:
-                        for section in state.get('sections', []):
-                            if section.get('id') == result['section_id']:
-                                section['content'] = result['enhanced_content']
-                                break
-        else:
-            # 串行执行（追踪模式）- 直接调用方法以保持 Langfuse 上下文
-            for task in tasks:
-                try:
-                    section = task['section']
-                    section_title = section.get('title', task['section_id'])
-                    original_length = len(section.get('content', ''))
-                    
-                    enhanced_content = self.writer.enhance_section(
-                        original_content=section.get('content', ''),
-                        vague_points=task['vague_points'],
-                        section_title=section_title,
-                        progress_info=task['progress_info']
-                    )
-                    
-                    new_length = len(enhanced_content)
-                    logger.info(f"章节深化完成: {section_title} (+{new_length - original_length} 字)")
-                    
-                    for s in state.get('sections', []):
-                        if s.get('id') == task['section_id']:
-                            s['content'] = enhanced_content
-                            break
-                except Exception as e:
-                    logger.error(f"章节深化失败 [{task['section_id']}]: {e}")
-        
+
+        results = self.executor.run_parallel(tasks, config=TaskConfig(
+            name="content_deepen", timeout_seconds=120,
+        ))
+
+        # 回写结果
+        for i, r in enumerate(results):
+            if r.success:
+                target_id = tasks[i]["_section_id"]
+                for section in state.get('sections', []):
+                    if section.get('id') == target_id:
+                        section['content'] = r.result
+                        logger.info(f"章节深化完成: {section.get('title', '')}")
+                        break
+            else:
+                logger.error(f"章节深化失败: {r.error}")
+
         after_count = _get_content_word_count(state)
         _log_word_count_diff("内容深化", before_count, after_count)
 
@@ -656,40 +642,26 @@ class BlogGenerator:
         return state
     
     def _coder_and_artist_node(self, state: SharedState) -> SharedState:
-        """代码和配图并行生成节点"""
-        from concurrent.futures import ThreadPoolExecutor
-        
+        """代码和配图并行生成节点（102.01 迁移：使用 ParallelTaskExecutor）"""
         logger.info("=== Step 5: 代码和配图并行生成 ===")
-        
-        # 使用线程池并行执行 coder 和 artist
-        # coder 修改: code_blocks, sections[x].code_ids
-        # artist 修改: images, sections[x].image_ids
-        # 两者不冲突，可以安全并行
-        
-        def run_coder():
-            logger.info("→ 开始代码生成")
-            return self.coder.run(state)
-        
-        def run_artist():
-            logger.info("→ 开始配图生成（含补图检测）")
-            return self.artist.run(state)
-        
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            coder_future = executor.submit(run_coder)
-            artist_future = executor.submit(run_artist)
-            
-            # 等待两者完成，并合并结果
-            coder_result = coder_future.result()
-            artist_result = artist_future.result()
-            
-            # 合并 artist 的结果到 state（特别是 section_images）
-            if artist_result:
-                if 'section_images' in artist_result:
-                    state['section_images'] = artist_result['section_images']
+
+        tasks = [
+            {"name": "代码生成", "fn": self.coder.run, "args": (state,)},
+            {"name": "配图生成", "fn": self.artist.run, "args": (state,)},
+        ]
+        results = self.executor.run_parallel(tasks, config=TaskConfig(
+            name="coder_and_artist", timeout_seconds=180,
+        ))
+
+        # 合并结果
+        for r in results:
+            if r.success and isinstance(r.result, dict):
+                if 'section_images' in r.result:
+                    state['section_images'] = r.result['section_images']
                     logger.info(f"合并 section_images: {len(state['section_images'])} 张")
-                if 'images' in artist_result:
-                    state['images'] = artist_result['images']
-        
+                if 'images' in r.result:
+                    state['images'] = r.result['images']
+
         code_count = len(state.get('code_blocks', []))
         image_count = len(state.get('images', []))
         logger.info(f"=== 代码和配图并行生成完成: {code_count} 个代码块, {image_count} 张图片 ===")
@@ -726,15 +698,11 @@ class BlogGenerator:
         return state
     
     def _revision_node(self, state: SharedState) -> SharedState:
-        """修订节点（并行）"""
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        import os
-        
+        """修订节点（102.01 迁移：使用 ParallelTaskExecutor）"""
         logger.info("=== Step 7.1: 修订 ===")
         before_count = _get_content_word_count(state)
         state['revision_count'] = state.get('revision_count', 0) + 1
-        
-        # 根据审核问题修订内容
+
         review_issues = state.get('review_issues', [])
         total_issues = len(review_issues)
         style = self._get_style(state)
@@ -742,189 +710,107 @@ class BlogGenerator:
         if total_issues == 0:
             logger.info("没有需要修订的问题")
             return state
-        
-        max_workers = int(os.environ.get('BLOG_GENERATOR_MAX_WORKERS', '3'))
-        use_parallel = _should_use_parallel()
-        
-        # correct_only 模式：按章节分组问题，使用 correct_section（只更正不扩展）
+
         if style.revision_strategy == "correct_only":
-            # 按章节分组问题
-            section_issues = {}
-            for issue in review_issues:
-                section_id = issue.get('section_id', '')
-                if section_id not in section_issues:
-                    section_issues[section_id] = []
-                section_issues[section_id].append({
-                    'severity': issue.get('severity', 'medium'),
-                    'description': issue.get('description', ''),
-                    'affected_content': issue.get('affected_content', '')
-                })
-            
-            if use_parallel:
-                logger.info(f"开始更正 {len(section_issues)} 个章节，使用 {min(max_workers, len(section_issues))} 个并行线程")
-            else:
-                logger.info(f"开始更正 {len(section_issues)} 个章节，使用串行模式（追踪已启用）")
-            
-            # 准备任务列表
-            tasks = []
-            for idx, (section_id, issues) in enumerate(section_issues.items(), 1):
-                for section in state.get('sections', []):
-                    if section.get('id') == section_id:
-                        tasks.append({
-                            'section': section,
-                            'section_id': section_id,
-                            'issues': issues,
-                            'progress_info': f"[{idx}/{len(section_issues)}]"
-                        })
-                        break
-            
-            # 执行更正
-            def correct_single_task(task):
-                try:
-                    section = task['section']
-                    section_title = section.get('title', task['section_id'])
-                    corrected_content = self.writer.correct_section(
-                        original_content=section.get('content', ''),
-                        issues=task['issues'],
-                        section_title=section_title,
-                        progress_info=task['progress_info']
-                    )
-                    return {
-                        'success': True,
-                        'section_id': task['section_id'],
-                        'content': corrected_content
-                    }
-                except Exception as e:
-                    logger.error(f"章节更正失败 [{task['section_id']}]: {e}")
-                    return {
-                        'success': False,
-                        'section_id': task['section_id'],
-                        'content': None
-                    }
-            
-            if use_parallel:
-                with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                    futures = {executor.submit(correct_single_task, task): task for task in tasks}
-                    for future in as_completed(futures):
-                        result = future.result()
-                        if result['success']:
-                            for section in state.get('sections', []):
-                                if section.get('id') == result['section_id']:
-                                    section['content'] = result['content']
-                                    break
-            else:
-                # 串行执行（追踪模式）- 直接调用方法以保持 Langfuse 上下文
-                for task in tasks:
-                    try:
-                        section = task['section']
-                        section_title = section.get('title', task['section_id'])
-                        corrected_content = self.writer.correct_section(
-                            original_content=section.get('content', ''),
-                            issues=task['issues'],
-                            section_title=section_title,
-                            progress_info=task['progress_info']
-                        )
-                        for s in state.get('sections', []):
-                            if s.get('id') == task['section_id']:
-                                s['content'] = corrected_content
-                                break
-                    except Exception as e:
-                        logger.error(f"章节更正失败 [{task['section_id']}]: {e}")
+            self._revision_correct_only(state, review_issues)
         else:
-            # 其他模式：使用 enhance_section（可扩展内容）
-            if use_parallel:
-                logger.info(f"开始修订 {total_issues} 个问题，使用 {min(max_workers, total_issues)} 个并行线程")
-            else:
-                logger.info(f"开始修订 {total_issues} 个问题，使用串行模式（追踪已启用）")
-            
-            # 准备任务列表
-            tasks = []
-            for idx, issue in enumerate(review_issues, 1):
-                section_id = issue.get('section_id', '')
-                suggestion = issue.get('suggestion', '')
-                
-                for section in state.get('sections', []):
-                    if section.get('id') == section_id:
-                        tasks.append({
-                            'section': section,
-                            'section_id': section_id,
-                            'issue': issue,
-                            'suggestion': suggestion,
-                            'progress_info': f"[{idx}/{total_issues}]"
-                        })
-                        break
-            
-            # 执行增强
-            def enhance_single_task(task):
-                try:
-                    section = task['section']
-                    section_title = section.get('title', task['section_id'])
-                    enhanced_content = self.writer.enhance_section(
-                        original_content=section.get('content', ''),
-                        vague_points=[{
-                            'location': section_title,
-                            'issue': task['issue'].get('description', ''),
-                            'question': task['suggestion'],
-                            'suggestion': '根据审核建议修改'
-                        }],
-                        section_title=section_title,
-                        progress_info=task['progress_info']
-                    )
-                    return {
-                        'success': True,
-                        'section_id': task['section_id'],
-                        'content': enhanced_content
-                    }
-                except Exception as e:
-                    logger.error(f"章节修订失败 [{task['section_id']}]: {e}")
-                    return {
-                        'success': False,
-                        'section_id': task['section_id'],
-                        'content': None
-                    }
-            
-            if use_parallel:
-                with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                    futures = {executor.submit(enhance_single_task, task): task for task in tasks}
-                    for future in as_completed(futures):
-                        result = future.result()
-                        if result['success']:
-                            for section in state.get('sections', []):
-                                if section.get('id') == result['section_id']:
-                                    section['content'] = result['content']
-                                    break
-            else:
-                # 串行执行（追踪模式）- 直接调用方法以保持 Langfuse 上下文
-                for task in tasks:
-                    try:
-                        section = task['section']
-                        section_title = section.get('title', task['section_id'])
-                        enhanced_content = self.writer.enhance_section(
-                            original_content=section.get('content', ''),
-                            vague_points=[{
-                                'location': section_title,
-                                'issue': task['issue'].get('description', ''),
-                                'question': task['suggestion'],
-                                'suggestion': '根据审核建议修改'
-                            }],
-                            section_title=section_title,
-                            progress_info=task['progress_info']
-                        )
-                        for s in state.get('sections', []):
-                            if s.get('id') == task['section_id']:
-                                s['content'] = enhanced_content
-                                break
-                    except Exception as e:
-                        logger.error(f"章节修订失败 [{task['section_id']}]: {e}")
-        
+            self._revision_enhance(state, review_issues)
+
         after_count = _get_content_word_count(state)
         _log_word_count_diff("修订", before_count, after_count)
         return state
 
-    def _consistency_check_node(self, state: SharedState) -> SharedState:
-        """一致性检查节点（Thread + Voice 并行）"""
-        from concurrent.futures import ThreadPoolExecutor
+    def _revision_correct_only(self, state, review_issues):
+        """correct_only 模式：按章节分组，使用 correct_section"""
+        section_issues = {}
+        for issue in review_issues:
+            section_id = issue.get('section_id', '')
+            if section_id not in section_issues:
+                section_issues[section_id] = []
+            section_issues[section_id].append({
+                'severity': issue.get('severity', 'medium'),
+                'description': issue.get('description', ''),
+                'affected_content': issue.get('affected_content', ''),
+            })
 
+        tasks = []
+        for idx, (section_id, issues) in enumerate(section_issues.items(), 1):
+            for section in state.get('sections', []):
+                if section.get('id') == section_id:
+                    section_title = section.get('title', section_id)
+                    progress_info = f"[{idx}/{len(section_issues)}]"
+                    tasks.append({
+                        "name": f"更正-{section_title}",
+                        "fn": self.writer.correct_section,
+                        "kwargs": {
+                            "original_content": section.get('content', ''),
+                            "issues": issues,
+                            "section_title": section_title,
+                            "progress_info": progress_info,
+                        },
+                        "_section_id": section_id,
+                    })
+                    break
+
+        results = self.executor.run_parallel(tasks, config=TaskConfig(
+            name="revision_correct", timeout_seconds=120,
+        ))
+
+        for i, r in enumerate(results):
+            if r.success:
+                target_id = tasks[i]["_section_id"]
+                for section in state.get('sections', []):
+                    if section.get('id') == target_id:
+                        section['content'] = r.result
+                        break
+            else:
+                logger.error(f"章节更正失败: {r.error}")
+
+    def _revision_enhance(self, state, review_issues):
+        """enhance 模式：按问题逐个修订"""
+        tasks = []
+        for idx, issue in enumerate(review_issues, 1):
+            section_id = issue.get('section_id', '')
+            suggestion = issue.get('suggestion', '')
+
+            for section in state.get('sections', []):
+                if section.get('id') == section_id:
+                    section_title = section.get('title', section_id)
+                    progress_info = f"[{idx}/{len(review_issues)}]"
+                    tasks.append({
+                        "name": f"修订-{section_title}",
+                        "fn": self.writer.enhance_section,
+                        "kwargs": {
+                            "original_content": section.get('content', ''),
+                            "vague_points": [{
+                                'location': section_title,
+                                'issue': issue.get('description', ''),
+                                'question': suggestion,
+                                'suggestion': '根据审核建议修改',
+                            }],
+                            "section_title": section_title,
+                            "progress_info": progress_info,
+                        },
+                        "_section_id": section_id,
+                    })
+                    break
+
+        results = self.executor.run_parallel(tasks, config=TaskConfig(
+            name="revision_enhance", timeout_seconds=120,
+        ))
+
+        for i, r in enumerate(results):
+            if r.success:
+                target_id = tasks[i]["_section_id"]
+                for section in state.get('sections', []):
+                    if section.get('id') == target_id:
+                        section['content'] = r.result
+                        break
+            else:
+                logger.error(f"章节修订失败: {r.error}")
+
+    def _consistency_check_node(self, state: SharedState) -> SharedState:
+        """一致性检查节点（102.01 迁移：使用 ParallelTaskExecutor）"""
         sections = state.get('sections', [])
         if len(sections) < 2:
             state['thread_issues'] = []
@@ -942,30 +828,19 @@ class BlogGenerator:
 
         logger.info("=== Step 6.5: 一致性检查（叙事 + 语气）===")
 
-        use_parallel = _should_use_parallel()
+        tasks = []
+        if thread_enabled:
+            tasks.append({"name": "叙事一致性", "fn": self.thread_checker.run, "args": (state,)})
+        if voice_enabled:
+            tasks.append({"name": "语气一致性", "fn": self.voice_checker.run, "args": (state,)})
 
-        if use_parallel and thread_enabled and voice_enabled:
-            with ThreadPoolExecutor(max_workers=2) as executor:
-                futures = []
-                if thread_enabled:
-                    futures.append(executor.submit(self.thread_checker.run, state))
-                if voice_enabled:
-                    futures.append(executor.submit(self.voice_checker.run, state))
-                for f in futures:
-                    f.result()
-        else:
-            if thread_enabled:
-                try:
-                    self.thread_checker.run(state)
-                except Exception as e:
-                    logger.error(f"[ThreadChecker] 异常: {e}")
-                    state['thread_issues'] = []
-            if voice_enabled:
-                try:
-                    self.voice_checker.run(state)
-                except Exception as e:
-                    logger.error(f"[VoiceChecker] 异常: {e}")
-                    state['voice_issues'] = []
+        results = self.executor.run_parallel(tasks, config=TaskConfig(
+            name="consistency_check", timeout_seconds=120,
+        ))
+
+        for r in results:
+            if not r.success:
+                logger.error(f"[ConsistencyCheck] {r.task_name} 异常: {r.error}")
 
         if not thread_enabled:
             state['thread_issues'] = []
@@ -1056,6 +931,10 @@ class BlogGenerator:
     
     def _should_deepen(self, state: SharedState) -> Literal["deepen", "continue"]:
         """判断是否需要深化内容"""
+        MAX_DEEPEN_ROUNDS = 5  # 硬限制，防止无限循环
+        if state.get('questioning_count', 0) >= MAX_DEEPEN_ROUNDS:
+            logger.warning(f"深化轮数达到硬限制 ({MAX_DEEPEN_ROUNDS})，强制跳过")
+            return "continue"
         if not state.get('all_sections_detailed', True):
             if state.get('questioning_count', 0) < self.max_questioning_rounds:
                 return "deepen"
@@ -1202,6 +1081,8 @@ class BlogGenerator:
                     target_length=target_length,
                 )
                 self.task_log = task_log
+                # 注入到中间件，自动记录每个节点耗时
+                self._task_log_middleware.set_task_log(task_log)
         except Exception:
             pass
 
@@ -1226,6 +1107,9 @@ class BlogGenerator:
             target_length=target_length,
             source_material=source_material
         )
+
+        # 102.10 迁移：设置追踪 ID
+        initial_state["trace_id"] = str(uuid.uuid4())[:8]
         
         logger.info(f"开始生成博客: {topic}")
         logger.info(f"  类型: {article_type}, 受众: {target_audience}, 长度: {target_length}")
@@ -1327,10 +1211,11 @@ class BlogGenerator:
             target_length=target_length,
             source_material=source_material
         )
-        
+
+        # 102.10 迁移：设置追踪 ID
+        initial_state["trace_id"] = str(uuid.uuid4())[:8]
+
         config = {"configurable": {"thread_id": f"blog_{topic}"}}
-        
-        # 使用 stream 方法获取中间状态
         for event in self.app.stream(initial_state, config):
             for node_name, state in event.items():
                 yield {
