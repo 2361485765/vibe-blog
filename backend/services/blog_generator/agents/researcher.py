@@ -102,6 +102,20 @@ class ResearcherAgent:
                 logger.info(f"102.08 ToolRegistry 已启用，已加载工具: {available}")
             except Exception as e:
                 logger.warning(f"ToolRegistry 初始化失败，回退到硬编码路径: {e}")
+
+        # 41.04 子查询并行研究引擎
+        self.sub_query_enabled = os.environ.get('SUB_QUERY_ENABLED', 'false').lower() == 'true'
+        self._sub_query_engine = None
+        if self.sub_query_enabled:
+            try:
+                from ..services.sub_query_engine import SubQueryEngine
+                self._sub_query_engine = SubQueryEngine(
+                    llm_client=llm_client,
+                    search_service=search_service,
+                )
+                logger.info("41.04 子查询并行研究引擎已启用")
+            except Exception as e:
+                logger.warning(f"子查询引擎初始化失败: {e}")
     
     def generate_search_queries(self, topic: str, target_audience: str) -> List[str]:
         """
@@ -611,7 +625,20 @@ class ResearcherAgent:
             logger.info(f"__DOC_PREVIEW__{preview}__END_PREVIEW__")
         
         # 1. 执行网络搜索
-        if self.smart_search_enabled:
+        if self._sub_query_engine:
+            # 41.04 子查询并行研究模式
+            logger.info(f"🔬 启动子查询并行研究...")
+            sq_result = self._sub_query_engine.run(
+                topic=topic, target_audience=target_audience, max_results=15,
+            )
+            search_results = sq_result['results']
+            state['sub_queries'] = sq_result['sub_queries']
+            state['sub_query_stats'] = sq_result['stats']
+            logger.info(
+                f"🔬 子查询并行研究完成: {sq_result['stats']['sub_query_count']} 个子查询, "
+                f"{sq_result['stats']['final_results']} 条结果"
+            )
+        elif self.smart_search_enabled:
             # 使用智能搜索（LLM 路由 + 多源并行）
             logger.info(f"🧠 启动智能知识源搜索...")
             search_results = self._smart_search(topic, target_audience)
