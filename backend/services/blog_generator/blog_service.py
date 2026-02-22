@@ -514,6 +514,9 @@ class BlogService:
                 llm = self.generator.llm
                 llm.task_manager = task_manager
                 llm.task_id = task_id
+                # v2 方案 10: LLM 调用完整日志
+                from utils.llm_logger import LLMCallLogger
+                llm.llm_logger = LLMCallLogger(task_id)
             except Exception:
                 pass
 

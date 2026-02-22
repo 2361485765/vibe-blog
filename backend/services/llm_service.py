@@ -105,6 +105,9 @@ class LLMService:
         # SSE 事件推送（由 BlogService 注入，默认 None）
         self.task_manager = None
         self.task_id = None
+
+        # LLM 调用完整日志（v2 方案 10）
+        self.llm_logger = None
     
     def _create_chat_model(self, model_name: str):
         """创建 LangChain ChatModel 实例（优先使用 ClientFactory）"""
@@ -432,6 +435,24 @@ class LLMService:
                         agent=_resolve_caller(caller),
                     )
 
+            # v2 方案 10: LLM 调用完整日志
+            if self.llm_logger:
+                prompt_text = "\n".join(
+                    m.get("content", "") if isinstance(m, dict) else str(m)
+                    for m in messages
+                )
+                tu = metadata.get("token_usage")
+                self.llm_logger.log(
+                    agent=_resolve_caller(caller),
+                    action="chat",
+                    prompt=prompt_text,
+                    response=content or "",
+                    input_tokens=tu.input_tokens if tu else 0,
+                    output_tokens=tu.output_tokens if tu else 0,
+                    duration_ms=int((time.time() - start_time) * 1000),
+                    model=model_name,
+                )
+
             return content
 
         except ContextLengthExceeded as e:
@@ -513,6 +534,20 @@ class LLMService:
                                 self.token_tracker.record(token_usage, agent=_resolve_caller(caller))
                         except Exception:
                             pass
+
+                    # v2 方案 10: LLM 调用完整日志
+                    if self.llm_logger:
+                        prompt_text = "\n".join(
+                            m.get("content", "") if isinstance(m, dict) else str(m)
+                            for m in messages
+                        )
+                        self.llm_logger.log(
+                            agent=_resolve_caller(caller),
+                            action="chat_stream",
+                            prompt=prompt_text,
+                            response=full_content,
+                            model=model_name,
+                        )
 
                     return full_content.strip()
 
