@@ -62,7 +62,9 @@ class TaskManager:
             task_type: 可选，任务类型标识
         """
         if not task_id:
-            task_id = f"task_{uuid.uuid4().hex[:12]}"
+            from datetime import datetime
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            task_id = f"task_{ts}_{uuid.uuid4().hex[:8]}"
         with self.task_lock:
             self.tasks[task_id] = TaskProgress(
                 task_id=task_id,
