@@ -480,7 +480,7 @@ class WriterAgent:
                 'next_preview': next_preview,
                 'background_knowledge': background_knowledge if i == 0 else (background_knowledge[:100] + '...' if len(background_knowledge) > 100 else background_knowledge),
                 'audience_adaptation': state.get('audience_adaptation', 'technical-beginner'),
-                'search_results': search_results,
+                'search_results': [] if section_outline.get('assigned_materials') else search_results,
                 'distilled_sources': distilled_sources,
                 'verbatim_data': verbatim_data,
                 'learning_objectives': learning_objectives,
