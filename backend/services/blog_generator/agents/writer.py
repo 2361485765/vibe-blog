@@ -137,17 +137,29 @@ class WriterAgent:
         """
         # Enrich assigned_materials with actual source data
         assigned_materials = []
+        assigned_indices = set()
         raw_materials = section_outline.get('assigned_materials', [])
         for mat in raw_materials:
             source_idx = mat.get('source_index', 0)
+            if source_idx > 0:
+                assigned_indices.add(source_idx)
             enriched = dict(mat)
             # Attach source data if available (1-indexed)
             if search_results and 0 < source_idx <= len(search_results):
                 source = search_results[source_idx - 1]
                 enriched['title'] = source.get('title', '')
-                enriched['url'] = source.get('source', source.get('url', ''))
+                enriched['url'] = source.get('url', source.get('source', ''))
                 enriched['core_insight'] = source.get('content', '')[:300]
             assigned_materials.append(enriched)
+
+        # 按 assigned_materials 过滤搜索结果，只传本章需要的素材
+        if assigned_indices and search_results:
+            filtered_results = [
+                sr for i, sr in enumerate(search_results, 1)
+                if i in assigned_indices
+            ]
+        else:
+            filtered_results = search_results or []
 
         pm = get_prompt_manager()
         prompt = pm.render_writer(
@@ -156,7 +168,7 @@ class WriterAgent:
             next_section_preview=next_section_preview,
             background_knowledge=background_knowledge,
             audience_adaptation=audience_adaptation,
-            search_results=search_results or [],
+            search_results=filtered_results,
             verbatim_data=verbatim_data or [],
             learning_objectives=learning_objectives or [],
             narrative_mode=narrative_mode,
@@ -433,7 +445,7 @@ class WriterAgent:
                 'section_outline': section_outline,
                 'prev_summary': prev_summary,
                 'next_preview': next_preview,
-                'background_knowledge': background_knowledge,
+                'background_knowledge': background_knowledge if i == 0 else (background_knowledge[:100] + '...' if len(background_knowledge) > 100 else background_knowledge),
                 'audience_adaptation': state.get('audience_adaptation', 'technical-beginner'),
                 'search_results': search_results,
                 'verbatim_data': verbatim_data,

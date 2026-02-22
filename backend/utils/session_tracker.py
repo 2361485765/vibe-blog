@@ -55,7 +55,9 @@ class SessionTracker:
                 kwargs["comment"] = comment
             if self.trace_id:
                 kwargs["trace_id"] = self.trace_id
-            self._langfuse.score(**kwargs)
+            # Langfuse v3: score() 可能不在顶层对象上
+            if hasattr(self._langfuse, 'score'):
+                self._langfuse.score(**kwargs)
         except Exception as e:
             logger.debug(f"SessionTracker.log_score 失败: {e}")
 
@@ -64,10 +66,11 @@ class SessionTracker:
         if not self._enabled:
             return
         try:
-            self._langfuse.trace(
-                name=name,
-                metadata=metadata or {},
-            )
+            if hasattr(self._langfuse, 'trace'):
+                self._langfuse.trace(
+                    name=name,
+                    metadata=metadata or {},
+                )
         except Exception as e:
             logger.debug(f"SessionTracker.log_event 失败: {e}")
 

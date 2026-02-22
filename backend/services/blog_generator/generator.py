@@ -233,8 +233,15 @@ class BlogGenerator:
         workflow.add_edge("researcher", "planner")
         workflow.add_edge("planner", "writer")
         
-        # Writer 后进入知识空白检查
-        workflow.add_edge("writer", "check_knowledge")
+        # Writer 后：mini 模式跳过知识空白检查，直接进入 questioner
+        workflow.add_conditional_edges(
+            "writer",
+            self._should_check_knowledge,
+            {
+                "check": "check_knowledge",
+                "skip": "questioner"
+            }
+        )
         
         # 条件边：检查后决定是搜索还是继续到 Questioner
         workflow.add_conditional_edges(
@@ -259,7 +266,15 @@ class BlogGenerator:
                 "continue": "section_evaluate"  # 进入段落评估
             }
         )
-        workflow.add_edge("deepen_content", "questioner")  # 深化后重新追问
+        # 深化后判断是否需要继续追问（避免已达轮数上限仍执行 questioner）
+        workflow.add_conditional_edges(
+            "deepen_content",
+            self._should_continue_questioning,
+            {
+                "questioner": "questioner",
+                "section_evaluate": "section_evaluate"
+            }
+        )
 
         # 段落评估 → 条件边：需要改进则进入改进节点，否则跳过
         workflow.add_conditional_edges(
@@ -1015,7 +1030,25 @@ class BlogGenerator:
             return "deepen"
 
         return "continue"
-    
+
+    def _should_continue_questioning(self, state: SharedState) -> Literal["questioner", "section_evaluate"]:
+        """深化后判断是否需要继续追问 — 避免已达轮数上限仍执行 questioner"""
+        count = state.get('questioning_count', 0)
+        style = self._get_style(state)
+        max_rounds = style.max_questioning_rounds
+        if count >= max_rounds:
+            logger.info(f"[Deepen] 深化后已达最大轮数 {count}/{max_rounds}，跳过追问")
+            return "section_evaluate"
+        return "questioner"
+
+    def _should_check_knowledge(self, state: SharedState) -> Literal["check", "skip"]:
+        """mini 模式跳过知识空白检查"""
+        target_length = state.get('target_length', 'medium')
+        if target_length == 'mini':
+            logger.info("[check_knowledge] mini 模式，跳过知识空白检查")
+            return "skip"
+        return "check"
+
     def _should_revise(self, state: SharedState) -> Literal["revision", "assemble"]:
         """判断是否需要修订 — 由 StyleProfile 控制"""
         style = self._get_style(state)

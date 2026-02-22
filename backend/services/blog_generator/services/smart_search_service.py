@@ -5,6 +5,7 @@
 import json
 import logging
 import os
+import re
 from typing import Dict, Any, List, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -468,11 +469,16 @@ class SmartSearchService:
         search_service = get_search_service()
         if search_service and search_service.is_available():
             result = search_service.search(query, max_results)
-            # 标记来源
+            # 标记来源 + 清洗 HTML
             if result.get('results'):
                 for item in result['results']:
                     if not item.get('source'):
-                        item['source'] = '通用搜索'
+                        item['source'] = item.get('url', '通用搜索')
+                    # 清洗 HTML 标签（如搜索引擎返回的 <em> 高亮）
+                    if item.get('title'):
+                        item['title'] = re.sub(r'<[^>]+>', '', item['title'])
+                    if item.get('content'):
+                        item['content'] = re.sub(r'<[^>]+>', '', item['content'])
             return result
         return {'success': False, 'results': [], 'error': '搜索服务不可用'}
     

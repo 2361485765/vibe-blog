@@ -746,7 +746,16 @@ class ResearcherAgent:
         
         # 3. 更新状态
         state['search_results'] = search_results
-        state['background_knowledge'] = summary.get('background_knowledge', '')
+        # 句子级去重：消除 LLM summarize 输出的自我重复
+        bg_raw = summary.get('background_knowledge', '')
+        if bg_raw:
+            sentences = [s.strip() for s in bg_raw.split('。') if s.strip()]
+            seen = []
+            for s in sentences:
+                if s not in seen:
+                    seen.append(s)
+            bg_raw = '。'.join(seen) + ('。' if sentences else '')
+        state['background_knowledge'] = bg_raw
         state['key_concepts'] = [
             c.get('name', c) if isinstance(c, dict) else c
             for c in summary.get('key_concepts', [])
