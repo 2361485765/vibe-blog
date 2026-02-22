@@ -90,7 +90,8 @@ class TaskManager:
                 'timestamp': time.time(),
                 'data': data,
             })
-            logger.debug(f"SSE 事件已入队 [{task_id}]: {event}")
+            if event not in ('writing_chunk', 'log', 'stream'):
+                logger.debug(f"SSE 事件已入队 [{task_id}]: {event}")
         else:
             logger.debug(f"SSE 队列不存在 [{task_id}]: {event}")
     

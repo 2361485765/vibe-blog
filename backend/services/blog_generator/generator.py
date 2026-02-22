@@ -1190,9 +1190,11 @@ class BlogGenerator:
             source_material=source_material
         )
 
-        # 102.10 迁移：设置追踪 ID
-        initial_state["trace_id"] = str(uuid.uuid4())[:8]
-        
+        # 102.10 迁移：设置追踪 ID（优先使用 task_id，保证 per-task 日志完整）
+        from logging_config import task_id_context
+        _ctx_task_id = task_id_context.get()
+        initial_state["trace_id"] = _ctx_task_id if _ctx_task_id else str(uuid.uuid4())[:8]
+
         logger.info(f"开始生成博客: {topic}")
         logger.info(f"  类型: {article_type}, 受众: {target_audience}, 长度: {target_length}")
         
@@ -1303,8 +1305,10 @@ class BlogGenerator:
             source_material=source_material
         )
 
-        # 102.10 迁移：设置追踪 ID
-        initial_state["trace_id"] = str(uuid.uuid4())[:8]
+        # 102.10 迁移：设置追踪 ID（优先使用 task_id，保证 per-task 日志完整）
+        from logging_config import task_id_context
+        _ctx_task_id = task_id_context.get()
+        initial_state["trace_id"] = _ctx_task_id if _ctx_task_id else str(uuid.uuid4())[:8]
 
         config = self._build_config(initial_state)
         logger.info(f"[RecursionBudget] limit={config['recursion_limit']}")

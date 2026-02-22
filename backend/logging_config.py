@@ -127,8 +127,11 @@ def setup_logging(log_level: str | int = "INFO", log_dir: str | None = None, ena
     console_handler._vibe_blog_handler = True  # type: ignore[attr-defined]
     root_logger.addHandler(console_handler)
 
-    # 屏蔽 werkzeug 高频轮询日志（Dashboard 每 3s 心跳）
+    # 屏蔽高频噪音日志
     logging.getLogger("werkzeug").setLevel(logging.WARNING)
+    logging.getLogger("fsevents").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.INFO)
+    logging.getLogger("openai._base_client").setLevel(logging.INFO)
 
     if not enable_file:
         return
