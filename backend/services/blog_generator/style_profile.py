@@ -20,6 +20,9 @@ class StyleProfile:
     max_revision_rounds: int = 3
     """最大修订轮数（mini/short=1, medium=3, long=5）"""
 
+    max_questioning_rounds: int = 2
+    """最大追问轮数（mini/short=1, medium=2, long=3）"""
+
     revision_strategy: Literal["correct_only", "full_revise"] = "full_revise"
     """修订策略：correct_only=只更正不扩展, full_revise=完整修订"""
 
@@ -87,6 +90,7 @@ class StyleProfile:
     def mini(cls) -> 'StyleProfile':
         return cls(
             max_revision_rounds=1,
+            max_questioning_rounds=1,
             revision_strategy="correct_only",
             revision_severity_filter="high_only",
             depth_requirement="minimal",
@@ -103,6 +107,7 @@ class StyleProfile:
     def short(cls) -> 'StyleProfile':
         return cls(
             max_revision_rounds=1,
+            max_questioning_rounds=1,
             revision_strategy="correct_only",
             revision_severity_filter="high_only",
             depth_requirement="shallow",
@@ -117,6 +122,7 @@ class StyleProfile:
     def medium(cls) -> 'StyleProfile':
         return cls(
             max_revision_rounds=3,
+            max_questioning_rounds=2,
             revision_strategy="full_revise",
             revision_severity_filter="all",
             depth_requirement="medium",
@@ -131,6 +137,7 @@ class StyleProfile:
     def long(cls) -> 'StyleProfile':
         return cls(
             max_revision_rounds=5,
+            max_questioning_rounds=3,
             revision_strategy="full_revise",
             revision_severity_filter="all",
             depth_requirement="deep",

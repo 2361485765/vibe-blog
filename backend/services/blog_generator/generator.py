@@ -976,14 +976,19 @@ class BlogGenerator:
         return self.assembler.run(state)
     
     def _should_deepen(self, state: SharedState) -> Literal["deepen", "continue"]:
-        """判断是否需要深化内容"""
-        MAX_DEEPEN_ROUNDS = 5  # 硬限制，防止无限循环
-        if state.get('questioning_count', 0) >= MAX_DEEPEN_ROUNDS:
-            logger.warning(f"深化轮数达到硬限制 ({MAX_DEEPEN_ROUNDS})，强制跳过")
+        """判断是否需要深化内容 — 统一用 StyleProfile 控制"""
+        count = state.get('questioning_count', 0)
+        style = self._get_style(state)
+        max_rounds = style.max_questioning_rounds
+
+        if count >= max_rounds:
+            logger.info(f"[Deepen] 已达最大轮数 {count}/{max_rounds}，停止深化")
             return "continue"
+
         if not state.get('all_sections_detailed', True):
-            if state.get('questioning_count', 0) < self.max_questioning_rounds:
-                return "deepen"
+            logger.info(f"[Deepen] 第 {count+1}/{max_rounds} 轮深化")
+            return "deepen"
+
         return "continue"
     
     def _should_revise(self, state: SharedState) -> Literal["revision", "assemble"]:

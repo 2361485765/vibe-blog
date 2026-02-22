@@ -62,5 +62,16 @@ JSON 格式:
 }
 
 ## 判断标准
+{% if depth_requirement == "minimal" %}
+- depth_score >= 50: is_detailed_enough = true（mini 模式：只要基本覆盖即可）
+- depth_score < 50: is_detailed_enough = false，需要列出 vague_points
+{% elif depth_requirement == "shallow" %}
+- depth_score >= 60: is_detailed_enough = true
+- depth_score < 60: is_detailed_enough = false，需要列出 vague_points
+{% elif depth_requirement == "medium" %}
+- depth_score >= 75: is_detailed_enough = true
+- depth_score < 75: is_detailed_enough = false，需要列出 vague_points
+{% else %}
 - depth_score >= 80: is_detailed_enough = true
 - depth_score < 80: is_detailed_enough = false，需要列出 vague_points
+{% endif %}
