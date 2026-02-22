@@ -13,8 +13,10 @@ from ..prompts import get_prompt_manager
 # 从环境变量读取并行配置，默认为 3
 MAX_WORKERS = int(os.environ.get('BLOG_GENERATOR_MAX_WORKERS', '3'))
 
-def _should_use_parallel():
-    """判断是否应该使用并行执行。当开启追踪时禁用并行，避免上下文丢失。"""
+def _should_use_parallel(mode: str = None):
+    """判断是否应该使用并行执行。mini 模式强制并行，其他模式受 TRACE_ENABLED 控制。"""
+    if mode == 'mini':
+        return True
     if os.environ.get('TRACE_ENABLED', 'false').lower() == 'true':
         return False
     return True
@@ -231,7 +233,7 @@ class QuestionerAgent:
         if max_workers is None:
             max_workers = MAX_WORKERS
         
-        use_parallel = _should_use_parallel()
+        use_parallel = _should_use_parallel(mode=target_length)
         if use_parallel:
             logger.info(f"开始追问检查 (深度要求: {depth_requirement})，{len(sections)} 个章节，使用 {min(max_workers, len(sections))} 个并行线程")
         else:
