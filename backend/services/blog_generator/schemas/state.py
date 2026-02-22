@@ -290,6 +290,18 @@ def get_max_search_count(target_length: str) -> int:
     return max_search_map.get(target_length, max_search_map['medium'])
 
 
+def _resolve_trace_id() -> str:
+    """优先使用 task_id_context，保证 per-task 日志完整"""
+    try:
+        from logging_config import task_id_context
+        ctx_id = task_id_context.get()
+        if ctx_id:
+            return ctx_id
+    except Exception:
+        pass
+    return uuid.uuid4().hex[:8]
+
+
 def create_initial_state(
     topic: str,
     article_type: str = "tutorial",
@@ -376,7 +388,7 @@ def create_initial_state(
         output_folder=None,
         error=None,
         # 102.10 迁移特性字段
-        trace_id=uuid.uuid4().hex[:8],
+        trace_id=_resolve_trace_id(),
         error_history=[],
         _node_errors=[],
         _node_budget=None,
