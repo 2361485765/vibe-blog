@@ -951,6 +951,11 @@ class BlogGenerator:
 
     def _factcheck_node(self, state: SharedState) -> SharedState:
         """事实核查节点"""
+        # mini 模式跳过事实核查（节省 ~280s）
+        target_length = state.get('target_length', 'medium')
+        if target_length == 'mini':
+            logger.info("[FactCheck] mini 模式，跳过事实核查")
+            return state
         style = self._get_style(state)
         if not self._is_enabled(self._env_factcheck, style.enable_fact_check):
             logger.info("=== Step 7.3: 事实核查（已禁用，跳过）===")

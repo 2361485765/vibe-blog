@@ -115,6 +115,7 @@ class WriterAgent:
         learning_objectives: List[Dict[str, Any]] = None,
         narrative_mode: str = "",
         narrative_flow: Dict[str, Any] = None,
+        distilled_sources: List[Dict[str, Any]] = None,
         **kwargs  # 接收 langfuse_parent_trace_id 等参数
     ) -> Dict[str, Any]:
         """
@@ -136,16 +137,30 @@ class WriterAgent:
             章节内容
         """
         # Enrich assigned_materials with actual source data
+        # 优先使用 distilled_sources（LLM 提炼的高质量摘要），回退到 search_results 短 snippet
         assigned_materials = []
         assigned_indices = set()
         raw_materials = section_outline.get('assigned_materials', [])
+        distilled = distilled_sources or []
         for mat in raw_materials:
             source_idx = mat.get('source_index', 0)
             if source_idx > 0:
                 assigned_indices.add(source_idx)
             enriched = dict(mat)
-            # Attach source data if available (1-indexed)
-            if search_results and 0 < source_idx <= len(search_results):
+            # 优先从 distilled_sources 获取丰富的 core_insight
+            distilled_match = None
+            if distilled and search_results and 0 < source_idx <= len(search_results):
+                source_url = search_results[source_idx - 1].get('url', '')
+                source_title = search_results[source_idx - 1].get('title', '')
+                for ds in distilled:
+                    if ds.get('url') == source_url or ds.get('title') == source_title:
+                        distilled_match = ds
+                        break
+            if distilled_match:
+                enriched['title'] = distilled_match.get('title', '')
+                enriched['url'] = distilled_match.get('url', '')
+                enriched['core_insight'] = distilled_match.get('core_insight', '')
+            elif search_results and 0 < source_idx <= len(search_results):
                 source = search_results[source_idx - 1]
                 enriched['title'] = source.get('title', '')
                 enriched['url'] = source.get('url', source.get('source', ''))
@@ -153,11 +168,26 @@ class WriterAgent:
             assigned_materials.append(enriched)
 
         # 按 assigned_materials 过滤搜索结果，只传本章需要的素材
+        # 使用 distilled_sources 替代原始短 snippet（如果可用）
         if assigned_indices and search_results:
-            filtered_results = [
-                sr for i, sr in enumerate(search_results, 1)
-                if i in assigned_indices
-            ]
+            filtered_results = []
+            for i, sr in enumerate(search_results, 1):
+                if i not in assigned_indices:
+                    continue
+                # 尝试用 distilled 版本替换
+                ds_match = None
+                for ds in distilled:
+                    if ds.get('url') == sr.get('url') or ds.get('title') == sr.get('title'):
+                        ds_match = ds
+                        break
+                if ds_match:
+                    filtered_results.append({
+                        'title': ds_match.get('title', sr.get('title', '')),
+                        'url': ds_match.get('url', sr.get('url', '')),
+                        'content': ds_match.get('core_insight', sr.get('content', '')),
+                    })
+                else:
+                    filtered_results.append(sr)
         else:
             filtered_results = search_results or []
 
@@ -416,6 +446,7 @@ class WriterAgent:
         sections_outline = outline.get('sections', [])
         background_knowledge = state.get('background_knowledge', '')
         search_results = state.get('search_results', [])
+        distilled_sources = state.get('distilled_sources', [])
         verbatim_data = state.get('verbatim_data', [])
         learning_objectives = state.get('learning_objectives', [])
         narrative_mode = outline.get('narrative_mode', '')
@@ -448,6 +479,7 @@ class WriterAgent:
                 'background_knowledge': background_knowledge if i == 0 else (background_knowledge[:100] + '...' if len(background_knowledge) > 100 else background_knowledge),
                 'audience_adaptation': state.get('audience_adaptation', 'technical-beginner'),
                 'search_results': search_results,
+                'distilled_sources': distilled_sources,
                 'verbatim_data': verbatim_data,
                 'learning_objectives': learning_objectives,
                 'narrative_mode': narrative_mode,
@@ -485,6 +517,7 @@ class WriterAgent:
                     learning_objectives=task.get('learning_objectives', []),
                     narrative_mode=task.get('narrative_mode', ''),
                     narrative_flow=task.get('narrative_flow', {}),
+                    distilled_sources=task.get('distilled_sources', []),
                     template=task.get('template'),  # 37.13
                     style=task.get('style'),  # 37.13
                     _writing_skill_prompt=task.get('_writing_skill_prompt', ''),  # 102.06
@@ -530,6 +563,7 @@ class WriterAgent:
                         learning_objectives=task.get('learning_objectives', []),
                         narrative_mode=task.get('narrative_mode', ''),
                         narrative_flow=task.get('narrative_flow', {}),
+                        distilled_sources=task.get('distilled_sources', []),
                         template=task.get('template'),  # 37.13
                         style=task.get('style'),  # 37.13
                     )
