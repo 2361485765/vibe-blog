@@ -193,6 +193,8 @@ class LLMService:
         """检查 LLM 服务是否可用"""
         if self.provider_format == 'gemini':
             return bool(self._google_api_key)
+        if self.provider_format == 'anthropic':
+            return bool(os.environ.get('ANTHROPIC_API_KEY', ''))
         return bool(self._openai_api_key)
 
     @staticmethod
@@ -354,12 +356,15 @@ class LLMService:
                     f"[{caller}] prompt 超限 {check['overflow_tokens']:,} tokens，"
                     f"建议调用方裁剪内容"
                 )
-            # 如果指定了 JSON 格式，尝试绑定到模型（部分 provider 可能不支持）
+            # 如果指定了 JSON 格式，尝试绑定到模型（Anthropic 不支持 response_format）
             if response_format and response_format.get("type") == "json_object":
-                try:
-                    model = model.bind(response_format={"type": "json_object"})
-                except Exception as bind_err:
-                    logger.warning(f"模型不支持 response_format 绑定: {bind_err}")
+                if self.provider_format == 'anthropic':
+                    logger.debug(f"[{caller}] Anthropic 不支持 response_format，依赖 prompt 约束 JSON 输出")
+                else:
+                    try:
+                        model = model.bind(response_format={"type": "json_object"})
+                    except Exception as bind_err:
+                        logger.warning(f"模型不支持 response_format 绑定: {bind_err}")
 
             # 转换消息格式
             langchain_messages = self._convert_messages(messages)
@@ -472,10 +477,13 @@ class LLMService:
 
         try:
             if response_format and response_format.get("type") == "json_object":
-                try:
-                    model = model.bind(response_format={"type": "json_object"})
-                except Exception as bind_err:
-                    logger.warning(f"模型不支持 response_format 绑定: {bind_err}")
+                if self.provider_format == 'anthropic':
+                    logger.debug("Anthropic 不支持 response_format，依赖 prompt 约束 JSON 输出")
+                else:
+                    try:
+                        model = model.bind(response_format={"type": "json_object"})
+                    except Exception as bind_err:
+                        logger.warning(f"模型不支持 response_format 绑定: {bind_err}")
 
             langchain_messages = self._convert_messages(messages)
             label = f"[{caller}] " if caller else ""

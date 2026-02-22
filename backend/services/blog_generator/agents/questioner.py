@@ -84,9 +84,10 @@ class QuestionerAgent:
         try:
             response = self.llm.chat(
                 messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
+                caller="questioner",
             )
-            
+
             if not response or not response.strip():
                 logger.warning(f"深度检查返回空响应，默认通过")
                 return {
@@ -166,6 +167,7 @@ class QuestionerAgent:
             response = self.llm.chat(
                 messages=[{"role": "user", "content": prompt}],
                 response_format={"type": "json_object"},
+                caller="questioner",
             )
 
             if not response or not response.strip():

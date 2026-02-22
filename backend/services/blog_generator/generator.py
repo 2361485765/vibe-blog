@@ -225,6 +225,7 @@ class BlogGenerator:
         workflow.add_node("factcheck", self.pipeline.wrap_node("factcheck", self._factcheck_node))
         workflow.add_node("text_cleanup", self.pipeline.wrap_node("text_cleanup", self._text_cleanup_node))
         workflow.add_node("humanizer", self.pipeline.wrap_node("humanizer", self._humanizer_node))
+        workflow.add_node("wait_for_images", self.pipeline.wrap_node("wait_for_images", self._wait_for_images_node))
         workflow.add_node("assembler", self.pipeline.wrap_node("assembler", self._assembler_node))
         workflow.add_node("summary_generator", self.pipeline.wrap_node("summary_generator", self._summary_generator_node))
         
@@ -304,7 +305,8 @@ class BlogGenerator:
         workflow.add_edge("revision", "reviewer")  # 修订后重新审核
         workflow.add_edge("factcheck", "text_cleanup")  # 事实核查后文本清理
         workflow.add_edge("text_cleanup", "humanizer")  # 文本清理后去 AI 味
-        workflow.add_edge("humanizer", "assembler")  # 去 AI 味后组装
+        workflow.add_edge("humanizer", "wait_for_images")  # 去 AI 味后等待配图
+        workflow.add_edge("wait_for_images", "assembler")  # 配图就绪后组装
         workflow.add_edge("assembler", "summary_generator")
         workflow.add_edge("summary_generator", END)
         
@@ -696,37 +698,66 @@ class BlogGenerator:
         return state
     
     def _coder_and_artist_node(self, state: SharedState) -> SharedState:
-        """代码和配图并行生成节点（102.01 迁移：使用 ParallelTaskExecutor）"""
-        logger.info("=== Step 5: 代码和配图并行生成 ===")
+        """代码生成（同步） + 配图生成（异步后台）
 
-        tasks = [
-            {"name": "代码生成", "fn": self.coder.run, "args": (state,)},
-            {"name": "配图生成", "fn": self.artist.run, "args": (state,)},
-        ]
-        results = self.executor.run_parallel(tasks, config=TaskConfig(
-            name="coder_and_artist", timeout_seconds=180,
-        ))
+        配图生成耗时长（~400s），但后续节点（dedup/reviewer/humanizer）不依赖图片。
+        因此将配图作为后台任务启动，在 assembler 前等待结果。
+        """
+        logger.info("=== Step 5: 代码生成 + 配图异步启动 ===")
 
-        # 合并结果
-        for r in results:
-            if r.success and isinstance(r.result, dict):
-                if 'section_images' in r.result:
-                    state['section_images'] = r.result['section_images']
-                    logger.info(f"合并 section_images: {len(state['section_images'])} 张")
-                if 'images' in r.result:
-                    state['images'] = r.result['images']
+        # 1. 代码生成（同步，很快）
+        try:
+            state = self.coder.run(state)
+        except Exception as e:
+            logger.error(f"代码生成失败: {e}")
 
         code_count = len(state.get('code_blocks', []))
-        image_count = len(state.get('images', []))
-        logger.info(f"=== 代码和配图并行生成完成: {code_count} 个代码块, {image_count} 张图片 ===")
+        logger.info(f"代码生成完成: {code_count} 个代码块")
 
-        # 69.05: 记录配图生成结果
-        for img in state.get('images', []):
-            self.tracker.log_image_generation(
-                image_id=img.get('id', ''),
-                image_type=img.get('render_method', ''),
-                success=True,
-            )
+        # 2. 配图生成（后台异步）
+        from concurrent.futures import ThreadPoolExecutor
+        image_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="artist")
+        future = image_executor.submit(self.artist.run, state)
+        state['_image_future'] = future
+        state['_image_executor'] = image_executor
+        logger.info("配图生成已异步启动，不阻塞后续流程")
+
+        return state
+
+    def _wait_for_images_node(self, state: SharedState) -> SharedState:
+        """等待异步配图生成完成，合并结果到 state"""
+        future = state.pop('_image_future', None)
+        executor = state.pop('_image_executor', None)
+
+        if future is None:
+            logger.warning("无配图异步任务，跳过等待")
+            return state
+
+        logger.info("=== 等待配图生成完成 ===")
+        try:
+            result = future.result(timeout=600)  # 最多等 10 分钟
+            if isinstance(result, dict):
+                if 'section_images' in result:
+                    state['section_images'] = result['section_images']
+                    logger.info(f"合并 section_images: {len(state['section_images'])} 张")
+                if 'images' in result:
+                    state['images'] = result['images']
+
+            image_count = len(state.get('images', []))
+            logger.info(f"=== 配图生成完成: {image_count} 张图片 ===")
+
+            # 69.05: 记录配图生成结果
+            for img in state.get('images', []):
+                self.tracker.log_image_generation(
+                    image_id=img.get('id', ''),
+                    image_type=img.get('render_method', ''),
+                    success=True,
+                )
+        except Exception as e:
+            logger.error(f"配图生成失败或超时: {e}")
+        finally:
+            if executor:
+                executor.shutdown(wait=False)
 
         return state
     
@@ -1180,6 +1211,10 @@ class BlogGenerator:
         """
         if self.app is None:
             self.compile()
+
+        # 根据 StyleProfile 配置并行执行引擎
+        style = StyleProfile.from_target_length(target_length)
+        self.executor = ParallelTaskExecutor(enable_parallel=style.enable_parallel)
 
         # 创建 Token 追踪器并注入 LLMService
         token_tracker = None

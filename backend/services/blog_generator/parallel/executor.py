@@ -62,19 +62,16 @@ class ParallelTaskExecutor:
         max_workers: int = None,
         default_timeout: int = 300,
         on_task_event: Callable[[dict], None] = None,
+        enable_parallel: bool = True,
     ):
         self.max_workers = max_workers or int(
             os.environ.get("BLOG_GENERATOR_MAX_WORKERS", "3")
         )
         self.default_timeout = default_timeout
         self.on_task_event = on_task_event
-        self._use_parallel = self._should_use_parallel()
-
-    @staticmethod
-    def _should_use_parallel() -> bool:
-        if os.environ.get("TRACE_ENABLED", "false").lower() == "true":
-            return False
-        return True
+        self._use_parallel = enable_parallel
+        if self._use_parallel and self.max_workers < 3:
+            self.max_workers = 3
 
     def run_parallel(
         self,

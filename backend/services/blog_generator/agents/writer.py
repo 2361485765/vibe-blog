@@ -244,12 +244,14 @@ class WriterAgent:
                 response = self.llm.chat_stream(
                     messages=[{"role": "user", "content": prompt}],
                     on_chunk=on_writing_chunk,
+                    caller="writer",
                 )
             else:
                 response = self.llm.chat(
-                    messages=[{"role": "user", "content": prompt}]
+                    messages=[{"role": "user", "content": prompt}],
+                    caller="writer",
                 )
-            
+
             return {
                 "id": section_outline.get('id', ''),
                 "title": section_outline.get('title', ''),
@@ -303,7 +305,8 @@ class WriterAgent:
         
         try:
             response = self.llm.chat(
-                messages=[{"role": "user", "content": prompt}]
+                messages=[{"role": "user", "content": prompt}],
+                caller="writer",
             )
             return response
             
@@ -355,9 +358,10 @@ class WriterAgent:
         
         try:
             response = self.llm.chat(
-                messages=[{"role": "user", "content": prompt}]
+                messages=[{"role": "user", "content": prompt}],
+                caller="writer",
             )
-            
+
             # 验证字数不超过原文
             corrected_word_count = len(response)
             if corrected_word_count > original_word_count * 1.1:  # 允许 10% 误差
@@ -410,7 +414,8 @@ class WriterAgent:
 
         try:
             response = self.llm.chat(
-                messages=[{"role": "user", "content": prompt}]
+                messages=[{"role": "user", "content": prompt}],
+                caller="writer",
             )
             if response and response.strip():
                 logger.info(

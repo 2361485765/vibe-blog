@@ -63,6 +63,9 @@ class StyleProfile:
     enable_ai_boost: bool = True
     """AI 话题自动增强搜索（自动扩展到所有 AI 权威博客源）"""
 
+    enable_parallel: bool = True
+    """是否启用并行执行（默认开启，调试/追踪时可关闭）"""
+
     # === 41.10 动态 Agent 角色 ===
 
     persona_key: str = ""
