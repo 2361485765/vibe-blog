@@ -234,6 +234,8 @@ class QuestionerAgent:
             max_workers = MAX_WORKERS
         
         use_parallel = _should_use_parallel(mode=target_length)
+        if use_parallel and max_workers < 3:
+            max_workers = 3  # mini 模式强制并行时，确保至少 3 个线程
         if use_parallel:
             logger.info(f"开始追问检查 (深度要求: {depth_requirement})，{len(sections)} 个章节，使用 {min(max_workers, len(sections))} 个并行线程")
         else:

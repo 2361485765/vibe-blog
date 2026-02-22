@@ -498,6 +498,8 @@ class WriterAgent:
         
         target_length = state.get('target_length', '')
         use_parallel = _should_use_parallel(mode=target_length)
+        if use_parallel and max_workers < 3:
+            max_workers = 3  # mini 模式强制并行时，确保至少 3 个线程
         if use_parallel:
             logger.info(f"开始撰写内容: {len(tasks)} 个章节，使用 {min(max_workers, len(tasks))} 个并行线程")
         else:
