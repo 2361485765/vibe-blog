@@ -101,7 +101,7 @@ class HumanizerAgent:
         return _extract_json(response)
 
     def _rewrite_section(self, content: str, audience_adaptation: str) -> Dict[str, Any]:
-        """改写：去除 AI 写作痕迹（含重试）"""
+        """改写：输出 diff 替换列表（含重试）"""
         pm = get_prompt_manager()
         prompt = pm.render_humanizer(
             section_content=content,
@@ -121,7 +121,6 @@ class HumanizerAgent:
                 return _extract_json(response)
             except (json.JSONDecodeError, ValueError) as e:
                 last_err = e
-                # 记录 LLM 原始返回内容，方便排查
                 resp_preview = repr(response[:200]) if response else "(None)"
                 logger.warning(
                     f"[Humanizer] 改写解析失败 (attempt {attempt+1}/{self.max_retries+1}): {e} "
@@ -129,9 +128,24 @@ class HumanizerAgent:
                 )
                 if attempt < self.max_retries:
                     time.sleep(2)
-        # 所有重试失败，返回原文（用 humanized_content key 保持与 run() 一致）
         logger.warning(f"[Humanizer] 改写最终失败，保留原文: {last_err}")
-        return {"humanized_content": content, "changes": [], "_fallback": True}
+        return {"replacements": [], "_fallback": True}
+
+    @staticmethod
+    def _apply_replacements(content: str, replacements: list) -> tuple:
+        """应用替换列表，返回 (新内容, 成功替换数)"""
+        applied = 0
+        for r in replacements:
+            old = r.get('old', '')
+            new = r.get('new', '')
+            if not old:
+                continue
+            if old in content:
+                content = content.replace(old, new, 1)
+                applied += 1
+            else:
+                logger.warning(f"[Humanizer] 替换未命中: '{old[:60]}'")
+        return content, applied
 
     def run(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -196,7 +210,7 @@ class HumanizerAgent:
                 section['humanizer_skipped'] = True
                 continue
 
-            # Step 2: 改写
+            # Step 2: 改写（diff 模式）
             try:
                 rewrite_result = self._rewrite_section(content, audience)
             except Exception as e:
@@ -206,9 +220,17 @@ class HumanizerAgent:
                 skipped_count += 1
                 continue
 
-            humanized = rewrite_result.get('humanized_content')
-            if not humanized or rewrite_result.get('_fallback'):
-                logger.warning(f"[Humanizer] [{idx+1}/{total_sections}] {title} — 改写结果为空或回退，使用原始内容")
+            replacements = rewrite_result.get('replacements', [])
+            if not replacements or rewrite_result.get('_fallback'):
+                logger.info(f"[Humanizer] [{idx+1}/{total_sections}] {title} — 无需替换或回退，保留原文")
+                section['humanizer_score'] = total_score
+                section['humanizer_skipped'] = True
+                skipped_count += 1
+                continue
+
+            humanized, applied = self._apply_replacements(content, replacements)
+            if applied == 0:
+                logger.warning(f"[Humanizer] [{idx+1}/{total_sections}] {title} — 所有替换未命中，保留原文")
                 section['humanizer_score'] = total_score
                 section['humanizer_skipped'] = True
                 skipped_count += 1
@@ -254,12 +276,15 @@ class HumanizerAgent:
                         f"改写后评分 {new_score} < 35，重试 ({retry_count}/{self.max_retries})"
                     )
                     retry_result = self._rewrite_section(humanized, audience)
-                    retry_humanized = retry_result.get('humanized_content')
-                    if retry_humanized:
-                        retry_placeholders = _extract_source_placeholders(retry_humanized)
-                        if not original_placeholders or original_placeholders.issubset(retry_placeholders):
-                            humanized = retry_humanized
-                            total_score = new_score
+                    retry_replacements = retry_result.get('replacements', [])
+                    if retry_replacements:
+                        retry_humanized, retry_applied = self._apply_replacements(humanized, retry_replacements)
+                        if retry_applied > 0:
+                            # 验证占位符完整性
+                            retry_placeholders = _extract_source_placeholders(retry_humanized)
+                            if not original_placeholders or original_placeholders.issubset(retry_placeholders):
+                                humanized = retry_humanized
+                                total_score = new_score
                 except Exception as e:
                     logger.error(f"[Humanizer] 重试失败: {e}")
                     break
@@ -268,7 +293,7 @@ class HumanizerAgent:
             section['content'] = humanized
             section['humanizer_score_before'] = score.get('total', 0)
             section['humanizer_score_after'] = total_score
-            section['humanizer_changes'] = rewrite_result.get('changes', [])
+            section['humanizer_changes'] = [f"{r.get('old', '')[:30]} → {r.get('new', '')[:30]}" for r in replacements[:5]]
             section['humanizer_skipped'] = False
             rewritten_count += 1
             score_improvements.append(total_score - score.get('total', 0))
@@ -277,7 +302,7 @@ class HumanizerAgent:
             logger.info(
                 f"[Humanizer] [{idx+1}/{total_sections}] {title} — "
                 f"评分 {score.get('total', 0)} → {total_score}/50, "
-                f"修改 {len(rewrite_result.get('changes', []))} 处 ({elapsed:.1f}s)"
+                f"替换 {applied}/{len(replacements)} 处 ({elapsed:.1f}s)"
             )
 
         total_elapsed = time.time() - start_time
