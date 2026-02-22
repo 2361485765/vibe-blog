@@ -314,7 +314,14 @@ class BlogGenerator:
 
         # 交互式模式：使用 LangGraph 原生 interrupt 暂停图执行
         outline = result.get('outline') if isinstance(result, dict) else None
-        if outline and getattr(self, '_interactive', False):
+
+        # mini 模式或环境变量指定时自动确认大纲，跳过人工 interrupt
+        auto_confirm = (
+            state.get('target_length') == 'mini'
+            or os.getenv('OUTLINE_AUTO_CONFIRM', 'false').lower() == 'true'
+        )
+
+        if outline and getattr(self, '_interactive', False) and not auto_confirm:
             sections = outline.get('sections', [])
             interrupt_data = {
                 "type": "confirm_outline",
@@ -335,6 +342,8 @@ class BlogGenerator:
                 result['sections'] = []  # 清空已有章节，重新写作
             else:
                 logger.info("大纲已被用户确认")
+        elif outline and auto_confirm:
+            logger.info(f"[AutoConfirm] 自动确认大纲 (target_length={state.get('target_length')})")
 
         # 102.06: 匹配写作技能，注入到 state 供 writer 使用
         if self._writing_skill_manager:
