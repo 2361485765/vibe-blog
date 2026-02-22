@@ -105,6 +105,9 @@ class LLMService:
         # SSE 事件推送（由 BlogService 注入，默认 None）
         self.task_manager = None
         self.task_id = None
+
+        # LLM 调用完整日志（v2 方案 10）
+        self.llm_logger = None
     
     def _create_chat_model(self, model_name: str):
         """创建 LangChain ChatModel 实例（优先使用 ClientFactory）"""
@@ -193,6 +196,8 @@ class LLMService:
         """检查 LLM 服务是否可用"""
         if self.provider_format == 'gemini':
             return bool(self._google_api_key)
+        if self.provider_format == 'anthropic':
+            return bool(os.environ.get('ANTHROPIC_API_KEY', ''))
         return bool(self._openai_api_key)
 
     @staticmethod
@@ -354,12 +359,15 @@ class LLMService:
                     f"[{caller}] prompt 超限 {check['overflow_tokens']:,} tokens，"
                     f"建议调用方裁剪内容"
                 )
-            # 如果指定了 JSON 格式，尝试绑定到模型（部分 provider 可能不支持）
+            # 如果指定了 JSON 格式，尝试绑定到模型（Anthropic 不支持 response_format）
             if response_format and response_format.get("type") == "json_object":
-                try:
-                    model = model.bind(response_format={"type": "json_object"})
-                except Exception as bind_err:
-                    logger.warning(f"模型不支持 response_format 绑定: {bind_err}")
+                if self.provider_format == 'anthropic':
+                    logger.debug(f"[{caller}] Anthropic 不支持 response_format，依赖 prompt 约束 JSON 输出")
+                else:
+                    try:
+                        model = model.bind(response_format={"type": "json_object"})
+                    except Exception as bind_err:
+                        logger.warning(f"模型不支持 response_format 绑定: {bind_err}")
 
             # 转换消息格式
             langchain_messages = self._convert_messages(messages)
@@ -427,6 +435,24 @@ class LLMService:
                         agent=_resolve_caller(caller),
                     )
 
+            # v2 方案 10: LLM 调用完整日志
+            if self.llm_logger:
+                prompt_text = "\n".join(
+                    m.get("content", "") if isinstance(m, dict) else str(m)
+                    for m in messages
+                )
+                tu = metadata.get("token_usage")
+                self.llm_logger.log(
+                    agent=_resolve_caller(caller),
+                    action="chat",
+                    prompt=prompt_text,
+                    response=content or "",
+                    input_tokens=tu.input_tokens if tu else 0,
+                    output_tokens=tu.output_tokens if tu else 0,
+                    duration_ms=int((time.time() - start_time) * 1000),
+                    model=model_name,
+                )
+
             return content
 
         except ContextLengthExceeded as e:
@@ -472,10 +498,13 @@ class LLMService:
 
         try:
             if response_format and response_format.get("type") == "json_object":
-                try:
-                    model = model.bind(response_format={"type": "json_object"})
-                except Exception as bind_err:
-                    logger.warning(f"模型不支持 response_format 绑定: {bind_err}")
+                if self.provider_format == 'anthropic':
+                    logger.debug("Anthropic 不支持 response_format，依赖 prompt 约束 JSON 输出")
+                else:
+                    try:
+                        model = model.bind(response_format={"type": "json_object"})
+                    except Exception as bind_err:
+                        logger.warning(f"模型不支持 response_format 绑定: {bind_err}")
 
             langchain_messages = self._convert_messages(messages)
             label = f"[{caller}] " if caller else ""
@@ -505,6 +534,20 @@ class LLMService:
                                 self.token_tracker.record(token_usage, agent=_resolve_caller(caller))
                         except Exception:
                             pass
+
+                    # v2 方案 10: LLM 调用完整日志
+                    if self.llm_logger:
+                        prompt_text = "\n".join(
+                            m.get("content", "") if isinstance(m, dict) else str(m)
+                            for m in messages
+                        )
+                        self.llm_logger.log(
+                            agent=_resolve_caller(caller),
+                            action="chat_stream",
+                            prompt=prompt_text,
+                            response=full_content,
+                            model=model_name,
+                        )
 
                     return full_content.strip()
 

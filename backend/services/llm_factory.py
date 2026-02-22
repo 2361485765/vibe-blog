@@ -44,6 +44,7 @@ PROVIDER_CONFIGS: Dict[str, Dict[str, Any]] = {
     'anthropic': {
         'env_key': 'ANTHROPIC_API_KEY',
         'type': 'anthropic',
+        'url_env_key': 'ANTHROPIC_API_URL',
     },
     'deepseek': {
         'env_key': 'DEEPSEEK_API_KEY',
@@ -137,12 +138,16 @@ def create_llm_client(
 
     if cfg['type'] == 'anthropic':
         _ensure_anthropic()
-        return ChatAnthropic(
+        anthropic_kwargs = dict(
             model=model_name,
             api_key=api_key,
             temperature=temperature,
             max_tokens=max_tokens,
         )
+        api_url = os.environ.get(cfg.get('url_env_key', ''), '')
+        if api_url:
+            anthropic_kwargs['anthropic_api_url'] = api_url
+        return ChatAnthropic(**anthropic_kwargs)
     else:
         _ensure_openai()
         # 使用不带代理的 httpx 客户端，避免系统代理干扰国内 API（如 dashscope）

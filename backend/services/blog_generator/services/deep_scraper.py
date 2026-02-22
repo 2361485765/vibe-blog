@@ -11,6 +11,7 @@ import logging
 import os
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional
 from urllib.parse import urlparse
 
@@ -99,26 +100,39 @@ class DeepScraper:
         topic: str,
         n: int = None,
     ) -> List[Dict]:
-        """对搜索结果 Top N 进行深度抓取 + LLM 提取"""
+        """对搜索结果 Top N 进行深度抓取 + LLM 提取（并行）"""
         n = n or self.top_n
         selected = self._select_urls(results, n)
+        if not selected:
+            return []
+
         enriched = []
 
-        for item in selected:
+        def _process_one(item: Dict) -> Optional[Dict]:
             url = item.get("url", "")
             full_text = self._scrape_single(url)
             if not full_text:
-                continue
-
+                return None
             extracted = self._extract_info(full_text, topic)
-            enriched.append({
+            return {
                 "url": url,
                 "title": item.get("title", ""),
                 "full_text": full_text,
                 "extracted_info": extracted,
-            })
+            }
 
-        logger.info(f"深度抓取完成: {len(enriched)}/{len(selected)} 成功")
+        with ThreadPoolExecutor(max_workers=min(n, 5)) as executor:
+            futures = {executor.submit(_process_one, item): item for item in selected}
+            for future in as_completed(futures):
+                try:
+                    result = future.result()
+                    if result:
+                        enriched.append(result)
+                except Exception as e:
+                    url = futures[future].get("url", "")
+                    logger.warning(f"深度抓取并行任务失败 [{url}]: {e}")
+
+        logger.info(f"深度抓取完成: {len(enriched)}/{len(selected)} 成功（并行模式）")
         return enriched
 
     def _select_urls(self, results: List[Dict], n: int) -> List[Dict]:

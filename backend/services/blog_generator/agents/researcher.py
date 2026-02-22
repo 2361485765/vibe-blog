@@ -5,6 +5,7 @@ Researcher Agent - 素材收集
 import json
 import logging
 import os
+import re
 from typing import Dict, Any, List, Optional
 
 from urllib.parse import urlparse
@@ -263,7 +264,23 @@ class ResearcherAgent:
             )
 
         return final_results
-    
+
+    @staticmethod
+    def _clean_search_results(results: List[Dict]) -> List[Dict]:
+        """统一清洗搜索结果：去除 HTML 标签、修正 source/url 字段"""
+        for item in results:
+            # 修正 source 字段：优先使用 url
+            if not item.get('source') or item.get('source') == '通用搜索':
+                item['source'] = item.get('url', '通用搜索')
+            # 确保 url 字段存在且优先
+            if not item.get('url') and item.get('source', '') != '通用搜索':
+                item['url'] = item.get('source', '')
+            # 去除 HTML 标签
+            for field in ('title', 'content', 'snippet'):
+                if item.get(field):
+                    item[field] = re.sub(r'<[^>]+>', '', item[field])
+        return results
+
     def _smart_search(self, topic: str, target_audience: str, max_results: int = 15) -> List[Dict]:
         """
         使用智能搜索服务（LLM 路由 + 多源并行）
@@ -669,7 +686,10 @@ class ResearcherAgent:
             # 使用普通搜索
             logger.info(f"🌐 启动网络搜索...")
             search_results = self.search(topic, target_audience)
-        
+
+        # 统一清洗搜索结果（无论来自缓存还是实时搜索）
+        search_results = self._clean_search_results(search_results)
+
         # 2. 知识融合分支
         if self.knowledge_service and has_document:
             # ✅ 有文档 → 走知识融合逻辑
@@ -746,7 +766,16 @@ class ResearcherAgent:
         
         # 3. 更新状态
         state['search_results'] = search_results
-        state['background_knowledge'] = summary.get('background_knowledge', '')
+        # 句子级去重：消除 LLM summarize 输出的自我重复
+        bg_raw = summary.get('background_knowledge', '')
+        if bg_raw:
+            sentences = [s.strip() for s in bg_raw.split('。') if s.strip()]
+            seen = []
+            for s in sentences:
+                if s not in seen:
+                    seen.append(s)
+            bg_raw = '。'.join(seen) + ('。' if sentences else '')
+        state['background_knowledge'] = bg_raw
         state['key_concepts'] = [
             c.get('name', c) if isinstance(c, dict) else c
             for c in summary.get('key_concepts', [])
@@ -815,6 +844,14 @@ class ResearcherAgent:
             gap_analysis = self.analyze_gaps(topic, article_type, distilled)
 
         state['distilled_sources'] = distilled.get('sources', [])
+        # 清洗 distilled_sources 中的 HTML 标签（缓存可能包含旧数据）
+        for src in state['distilled_sources']:
+            for field in ('core_insight', 'title', 'key_facts'):
+                val = src.get(field)
+                if isinstance(val, str):
+                    src[field] = re.sub(r'<[^>]+>', '', val)
+                elif isinstance(val, list):
+                    src[field] = [re.sub(r'<[^>]+>', '', v) if isinstance(v, str) else v for v in val]
         state['material_by_type'] = distilled.get('material_by_type', {})
         state['common_themes'] = distilled.get('common_themes', [])
         state['contradictions'] = distilled.get('contradictions', [])

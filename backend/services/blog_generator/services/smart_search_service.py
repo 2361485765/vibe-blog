@@ -5,6 +5,7 @@
 import json
 import logging
 import os
+import re
 from typing import Dict, Any, List, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -294,6 +295,15 @@ class SmartSearchService:
         # 第三步：合并去重
         merged_results = self._merge_and_dedupe(all_results)
 
+        # 统一清洗所有搜索结果：HTML 标签 + source 字段
+        for item in merged_results:
+            if not item.get('source') or item.get('source') == '通用搜索':
+                item['source'] = item.get('url', '通用搜索')
+            if item.get('title'):
+                item['title'] = re.sub(r'<[^>]+>', '', item['title'])
+            if item.get('content'):
+                item['content'] = re.sub(r'<[^>]+>', '', item['content'])
+
         # 第四步：41.02 源可信度筛选（LLM 四维评估）
         if self._credibility_filter and merged_results:
             merged_results = self._credibility_filter.curate(
@@ -468,11 +478,16 @@ class SmartSearchService:
         search_service = get_search_service()
         if search_service and search_service.is_available():
             result = search_service.search(query, max_results)
-            # 标记来源
+            # 标记来源 + 清洗 HTML
             if result.get('results'):
                 for item in result['results']:
                     if not item.get('source'):
-                        item['source'] = '通用搜索'
+                        item['source'] = item.get('url', '通用搜索')
+                    # 清洗 HTML 标签（如搜索引擎返回的 <em> 高亮）
+                    if item.get('title'):
+                        item['title'] = re.sub(r'<[^>]+>', '', item['title'])
+                    if item.get('content'):
+                        item['content'] = re.sub(r'<[^>]+>', '', item['content'])
             return result
         return {'success': False, 'results': [], 'error': '搜索服务不可用'}
     

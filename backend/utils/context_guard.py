@@ -25,6 +25,7 @@ MODEL_CONTEXT_LIMITS = {
     "claude-3.5-haiku": 200_000,
     "claude-3-opus": 200_000,
     "claude-3-sonnet": 200_000,
+    "claude-haiku-4-5": 200_000,
     # 通义千问
     "qwen3": 128_000,
     "qwen-max": 128_000,

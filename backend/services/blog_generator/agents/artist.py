@@ -1122,7 +1122,11 @@ class ArtistAgent:
         
         def generate_section_image(idx: int, section: Dict[str, Any]):
             """生成单个章节的配图"""
+            import time as _time
+            _start = _time.time()
             section_title = section.get('title', f'章节{idx + 1}')
+            total = len(sections)
+            logger.info(f"[Artist] 开始生成第 {idx+1}/{total} 张配图: {section_title}")
             section_content = section.get('content', '')
             
             # 提取章节摘要（取前 2000 字）
@@ -1153,6 +1157,8 @@ class ArtistAgent:
                 
                 if result and (result.oss_url or result.url):
                     image_url = result.oss_url or result.url
+                    elapsed = _time.time() - _start
+                    logger.info(f"[Artist] 第 {idx+1}/{total} 张配图完成 ({elapsed:.1f}s): {section_title}")
                     
                     return {
                         'success': True,
@@ -1168,11 +1174,13 @@ class ArtistAgent:
                         }
                     }
                 else:
-                    logger.warning(f"[Mini 模式] 章节 {idx + 1} 配图生成失败")
+                    elapsed = _time.time() - _start
+                    logger.warning(f"[Artist] 第 {idx+1}/{total} 张配图失败 ({elapsed:.1f}s): {section_title}")
                     return {'success': False, 'idx': idx}
                     
             except Exception as e:
-                logger.error(f"[Mini 模式] 章节 {idx + 1} 配图生成异常: {e}")
+                elapsed = _time.time() - _start
+                logger.error(f"[Artist] 第 {idx+1}/{total} 张配图异常 ({elapsed:.1f}s): {e}")
                 return {'success': False, 'idx': idx, 'error': str(e)}
         
         # 并行生成所有章节配图

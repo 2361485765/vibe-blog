@@ -225,6 +225,7 @@ class BlogGenerator:
         workflow.add_node("factcheck", self.pipeline.wrap_node("factcheck", self._factcheck_node))
         workflow.add_node("text_cleanup", self.pipeline.wrap_node("text_cleanup", self._text_cleanup_node))
         workflow.add_node("humanizer", self.pipeline.wrap_node("humanizer", self._humanizer_node))
+        workflow.add_node("wait_for_images", self.pipeline.wrap_node("wait_for_images", self._wait_for_images_node))
         workflow.add_node("assembler", self.pipeline.wrap_node("assembler", self._assembler_node))
         workflow.add_node("summary_generator", self.pipeline.wrap_node("summary_generator", self._summary_generator_node))
         
@@ -233,8 +234,15 @@ class BlogGenerator:
         workflow.add_edge("researcher", "planner")
         workflow.add_edge("planner", "writer")
         
-        # Writer 后进入知识空白检查
-        workflow.add_edge("writer", "check_knowledge")
+        # Writer 后：mini 模式跳过知识空白检查，直接进入 questioner
+        workflow.add_conditional_edges(
+            "writer",
+            self._should_check_knowledge,
+            {
+                "check": "check_knowledge",
+                "skip": "questioner"
+            }
+        )
         
         # 条件边：检查后决定是搜索还是继续到 Questioner
         workflow.add_conditional_edges(
@@ -259,7 +267,15 @@ class BlogGenerator:
                 "continue": "section_evaluate"  # 进入段落评估
             }
         )
-        workflow.add_edge("deepen_content", "questioner")  # 深化后重新追问
+        # 深化后判断是否需要继续追问（避免已达轮数上限仍执行 questioner）
+        workflow.add_conditional_edges(
+            "deepen_content",
+            self._should_continue_questioning,
+            {
+                "questioner": "questioner",
+                "section_evaluate": "section_evaluate"
+            }
+        )
 
         # 段落评估 → 条件边：需要改进则进入改进节点，否则跳过
         workflow.add_conditional_edges(
@@ -289,7 +305,8 @@ class BlogGenerator:
         workflow.add_edge("revision", "reviewer")  # 修订后重新审核
         workflow.add_edge("factcheck", "text_cleanup")  # 事实核查后文本清理
         workflow.add_edge("text_cleanup", "humanizer")  # 文本清理后去 AI 味
-        workflow.add_edge("humanizer", "assembler")  # 去 AI 味后组装
+        workflow.add_edge("humanizer", "wait_for_images")  # 去 AI 味后等待配图
+        workflow.add_edge("wait_for_images", "assembler")  # 配图就绪后组装
         workflow.add_edge("assembler", "summary_generator")
         workflow.add_edge("summary_generator", END)
         
@@ -314,7 +331,14 @@ class BlogGenerator:
 
         # 交互式模式：使用 LangGraph 原生 interrupt 暂停图执行
         outline = result.get('outline') if isinstance(result, dict) else None
-        if outline and getattr(self, '_interactive', False):
+
+        # mini 模式或环境变量指定时自动确认大纲，跳过人工 interrupt
+        auto_confirm = (
+            state.get('target_length') == 'mini'
+            or os.getenv('OUTLINE_AUTO_CONFIRM', 'false').lower() == 'true'
+        )
+
+        if outline and getattr(self, '_interactive', False) and not auto_confirm:
             sections = outline.get('sections', [])
             interrupt_data = {
                 "type": "confirm_outline",
@@ -335,6 +359,8 @@ class BlogGenerator:
                 result['sections'] = []  # 清空已有章节，重新写作
             else:
                 logger.info("大纲已被用户确认")
+        elif outline and auto_confirm:
+            logger.info(f"[AutoConfirm] 自动确认大纲 (target_length={state.get('target_length')})")
 
         # 102.06: 匹配写作技能，注入到 state 供 writer 使用
         if self._writing_skill_manager:
@@ -672,43 +698,81 @@ class BlogGenerator:
         return state
     
     def _coder_and_artist_node(self, state: SharedState) -> SharedState:
-        """代码和配图并行生成节点（102.01 迁移：使用 ParallelTaskExecutor）"""
-        logger.info("=== Step 5: 代码和配图并行生成 ===")
+        """代码生成（同步） + 配图生成（异步后台）
 
-        tasks = [
-            {"name": "代码生成", "fn": self.coder.run, "args": (state,)},
-            {"name": "配图生成", "fn": self.artist.run, "args": (state,)},
-        ]
-        results = self.executor.run_parallel(tasks, config=TaskConfig(
-            name="coder_and_artist", timeout_seconds=180,
-        ))
+        配图生成耗时长（~400s），但后续节点（dedup/reviewer/humanizer）不依赖图片。
+        因此将配图作为后台任务启动，在 assembler 前等待结果。
+        """
+        logger.info("=== Step 5: 代码生成 + 配图异步启动 ===")
 
-        # 合并结果
-        for r in results:
-            if r.success and isinstance(r.result, dict):
-                if 'section_images' in r.result:
-                    state['section_images'] = r.result['section_images']
-                    logger.info(f"合并 section_images: {len(state['section_images'])} 张")
-                if 'images' in r.result:
-                    state['images'] = r.result['images']
+        # 1. 代码生成（同步，很快）
+        try:
+            state = self.coder.run(state)
+        except Exception as e:
+            logger.error(f"代码生成失败: {e}")
 
         code_count = len(state.get('code_blocks', []))
-        image_count = len(state.get('images', []))
-        logger.info(f"=== 代码和配图并行生成完成: {code_count} 个代码块, {image_count} 张图片 ===")
+        logger.info(f"代码生成完成: {code_count} 个代码块")
 
-        # 69.05: 记录配图生成结果
-        for img in state.get('images', []):
-            self.tracker.log_image_generation(
-                image_id=img.get('id', ''),
-                image_type=img.get('render_method', ''),
-                success=True,
-            )
+        # 2. 配图生成（后台异步）
+        from concurrent.futures import ThreadPoolExecutor
+        image_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="artist")
+        future = image_executor.submit(self.artist.run, state)
+        state['_image_future'] = future
+        state['_image_executor'] = image_executor
+        logger.info("配图生成已异步启动，不阻塞后续流程")
+
+        return state
+
+    def _wait_for_images_node(self, state: SharedState) -> SharedState:
+        """等待异步配图生成完成，合并结果到 state"""
+        future = state.pop('_image_future', None)
+        executor = state.pop('_image_executor', None)
+
+        if future is None:
+            logger.warning("无配图异步任务，跳过等待")
+            return state
+
+        logger.info("=== 等待配图生成完成 ===")
+        try:
+            result = future.result(timeout=600)  # 最多等 10 分钟
+            if isinstance(result, dict):
+                if 'section_images' in result:
+                    state['section_images'] = result['section_images']
+                    logger.info(f"合并 section_images: {len(state['section_images'])} 张")
+                if 'images' in result:
+                    state['images'] = result['images']
+
+            image_count = len(state.get('images', []))
+            logger.info(f"=== 配图生成完成: {image_count} 张图片 ===")
+
+            # 69.05: 记录配图生成结果
+            for img in state.get('images', []):
+                self.tracker.log_image_generation(
+                    image_id=img.get('id', ''),
+                    image_type=img.get('render_method', ''),
+                    success=True,
+                )
+        except Exception as e:
+            logger.error(f"配图生成失败或超时: {e}")
+        finally:
+            if executor:
+                executor.shutdown(wait=False)
 
         return state
     
     def _reviewer_node(self, state: SharedState) -> SharedState:
         """质量审核节点"""
         logger.info("=== Step 7: 质量审核 ===")
+
+        # mini 模式：修订后跳过 R2 审核（revision_count 已达上限时，R2 结果不影响路由）
+        style = self._get_style(state)
+        revision_count = state.get('revision_count', 0)
+        if revision_count >= style.max_revision_rounds:
+            logger.info(f"[Reviewer] 已达最大修订轮数 ({style.max_revision_rounds})，跳过 R2 审核")
+            state['review_approved'] = True
+            return state
+
         state = self.reviewer.run(state)
 
         # 合并一致性检查发现的问题到 review_issues
@@ -905,12 +969,33 @@ class BlogGenerator:
         target_length = state.get('target_length', 'medium')
         return StyleProfile.from_target_length(target_length)
 
+    def _build_config(self, state: dict) -> dict:
+        """构建 LangGraph 执行配置，动态计算 recursion_limit"""
+        style = self._get_style(state)
+        base_nodes = 20  # _build_workflow() 实际节点数，新增节点时需同步更新
+        max_loops = (
+            style.max_questioning_rounds * 2
+            + style.max_revision_rounds * 2
+            + 2  # section_evaluate <-> improve
+        )
+        recursion_limit = base_nodes + max_loops + 5
+
+        return {
+            "configurable": {"thread_id": f"blog_{state.get('topic', 'default')}"},
+            "recursion_limit": recursion_limit,
+        }
+
     def _is_enabled(self, env_flag: bool, style_flag: bool) -> bool:
         """环境变量 AND StyleProfile 双重开关"""
         return env_flag and style_flag
 
     def _factcheck_node(self, state: SharedState) -> SharedState:
         """事实核查节点"""
+        # mini 模式跳过事实核查（节省 ~280s）
+        target_length = state.get('target_length', 'medium')
+        if target_length == 'mini':
+            logger.info("[FactCheck] mini 模式，跳过事实核查")
+            return state
         style = self._get_style(state)
         if not self._is_enabled(self._env_factcheck, style.enable_fact_check):
             logger.info("=== Step 7.3: 事实核查（已禁用，跳过）===")
@@ -976,16 +1061,39 @@ class BlogGenerator:
         return self.assembler.run(state)
     
     def _should_deepen(self, state: SharedState) -> Literal["deepen", "continue"]:
-        """判断是否需要深化内容"""
-        MAX_DEEPEN_ROUNDS = 5  # 硬限制，防止无限循环
-        if state.get('questioning_count', 0) >= MAX_DEEPEN_ROUNDS:
-            logger.warning(f"深化轮数达到硬限制 ({MAX_DEEPEN_ROUNDS})，强制跳过")
+        """判断是否需要深化内容 — 统一用 StyleProfile 控制"""
+        count = state.get('questioning_count', 0)
+        style = self._get_style(state)
+        max_rounds = style.max_questioning_rounds
+
+        if count >= max_rounds:
+            logger.info(f"[Deepen] 已达最大轮数 {count}/{max_rounds}，停止深化")
             return "continue"
+
         if not state.get('all_sections_detailed', True):
-            if state.get('questioning_count', 0) < self.max_questioning_rounds:
-                return "deepen"
+            logger.info(f"[Deepen] 第 {count+1}/{max_rounds} 轮深化")
+            return "deepen"
+
         return "continue"
-    
+
+    def _should_continue_questioning(self, state: SharedState) -> Literal["questioner", "section_evaluate"]:
+        """深化后判断是否需要继续追问 — 避免已达轮数上限仍执行 questioner"""
+        count = state.get('questioning_count', 0)
+        style = self._get_style(state)
+        max_rounds = style.max_questioning_rounds
+        if count >= max_rounds:
+            logger.info(f"[Deepen] 深化后已达最大轮数 {count}/{max_rounds}，跳过追问")
+            return "section_evaluate"
+        return "questioner"
+
+    def _should_check_knowledge(self, state: SharedState) -> Literal["check", "skip"]:
+        """mini 模式跳过知识空白检查"""
+        target_length = state.get('target_length', 'medium')
+        if target_length == 'mini':
+            logger.info("[check_knowledge] mini 模式，跳过知识空白检查")
+            return "skip"
+        return "check"
+
     def _should_revise(self, state: SharedState) -> Literal["revision", "assemble"]:
         """判断是否需要修订 — 由 StyleProfile 控制"""
         style = self._get_style(state)
@@ -1104,6 +1212,10 @@ class BlogGenerator:
         if self.app is None:
             self.compile()
 
+        # 根据 StyleProfile 配置并行执行引擎
+        style = StyleProfile.from_target_length(target_length)
+        self.executor = ParallelTaskExecutor(enable_parallel=style.enable_parallel)
+
         # 创建 Token 追踪器并注入 LLMService
         token_tracker = None
         cost_tracker = None
@@ -1160,15 +1272,13 @@ class BlogGenerator:
             source_material=source_material
         )
 
-        # 102.10 迁移：设置追踪 ID
-        initial_state["trace_id"] = str(uuid.uuid4())[:8]
-        
         logger.info(f"开始生成博客: {topic}")
         logger.info(f"  类型: {article_type}, 受众: {target_audience}, 长度: {target_length}")
         
         # 执行工作流
-        config = {"configurable": {"thread_id": f"blog_{topic}"}}
-        
+        config = self._build_config(initial_state)
+        logger.info(f"[RecursionBudget] limit={config['recursion_limit']}")
+
         try:
             final_state = self.app.invoke(initial_state, config)
             
@@ -1272,10 +1382,8 @@ class BlogGenerator:
             source_material=source_material
         )
 
-        # 102.10 迁移：设置追踪 ID
-        initial_state["trace_id"] = str(uuid.uuid4())[:8]
-
-        config = {"configurable": {"thread_id": f"blog_{topic}"}}
+        config = self._build_config(initial_state)
+        logger.info(f"[RecursionBudget] limit={config['recursion_limit']}")
         for event in self.app.stream(initial_state, config):
             for node_name, state in event.items():
                 yield {

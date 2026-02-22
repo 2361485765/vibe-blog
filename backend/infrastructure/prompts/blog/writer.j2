@@ -172,7 +172,7 @@
 
 {% for result in search_results %}
 ### 来源 {{ loop.index }}: {{ result.get('title', '未知标题') }}
-**URL**: {{ result.get('source', '') }}
+**URL**: {{ result.get('url', result.get('source', '')) }}
 
 {{ result.get('content', '') }}
 

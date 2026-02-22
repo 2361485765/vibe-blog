@@ -62,7 +62,9 @@ class TaskManager:
             task_type: 可选，任务类型标识
         """
         if not task_id:
-            task_id = f"task_{uuid.uuid4().hex[:12]}"
+            from datetime import datetime
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            task_id = f"task_{ts}_{uuid.uuid4().hex[:8]}"
         with self.task_lock:
             self.tasks[task_id] = TaskProgress(
                 task_id=task_id,
@@ -90,9 +92,14 @@ class TaskManager:
                 'timestamp': time.time(),
                 'data': data,
             })
-            logger.debug(f"SSE 事件已入队 [{task_id}]: {event}")
+            if event not in ('writing_chunk', 'log', 'stream'):
+                logger.debug(f"SSE 事件已入队 [{task_id}]: {event}")
         else:
-            logger.debug(f"SSE 队列不存在 [{task_id}]: {event}")
+            # 队列不存在时只记录一次 warning，避免日志洪泛
+            warn_key = f"_sse_warn_{task_id}"
+            if not getattr(self, warn_key, False):
+                setattr(self, warn_key, True)
+                logger.warning(f"SSE 队列不存在 [{task_id}]，后续同任务事件将静默丢弃")
     
     def send_progress(self, task_id: str, stage: str, progress: int, message: str, **extra):
         """发送进度更新"""

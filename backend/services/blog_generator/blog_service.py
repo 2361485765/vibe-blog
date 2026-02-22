@@ -514,6 +514,9 @@ class BlogService:
                 llm = self.generator.llm
                 llm.task_manager = task_manager
                 llm.task_id = task_id
+                # v2 方案 10: LLM 调用完整日志
+                from utils.llm_logger import LLMCallLogger
+                llm.llm_logger = LLMCallLogger(task_id)
             except Exception:
                 pass
 
@@ -685,7 +688,15 @@ class BlogService:
             
             # 记录已完成的章节数
             completed_sections = 0
-            
+
+            # 根据 StyleProfile 配置并行执行引擎
+            from .style_profile import StyleProfile
+            from .parallel import ParallelTaskExecutor
+            style = StyleProfile.from_target_length(target_length)
+            self.generator.executor = ParallelTaskExecutor(
+                enable_parallel=style.enable_parallel,
+            )
+
             # 使用 stream 获取中间状态
             for event in self.generator.app.stream(initial_state, config):
                 # 检查任务是否被取消
