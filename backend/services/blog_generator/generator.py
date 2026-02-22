@@ -914,6 +914,22 @@ class BlogGenerator:
         target_length = state.get('target_length', 'medium')
         return StyleProfile.from_target_length(target_length)
 
+    def _build_config(self, state: dict) -> dict:
+        """构建 LangGraph 执行配置，动态计算 recursion_limit"""
+        style = self._get_style(state)
+        base_nodes = 20  # _build_workflow() 实际节点数，新增节点时需同步更新
+        max_loops = (
+            style.max_questioning_rounds * 2
+            + style.max_revision_rounds * 2
+            + 2  # section_evaluate <-> improve
+        )
+        recursion_limit = base_nodes + max_loops + 5
+
+        return {
+            "configurable": {"thread_id": f"blog_{state.get('topic', 'default')}"},
+            "recursion_limit": recursion_limit,
+        }
+
     def _is_enabled(self, env_flag: bool, style_flag: bool) -> bool:
         """环境变量 AND StyleProfile 双重开关"""
         return env_flag and style_flag
@@ -1181,8 +1197,9 @@ class BlogGenerator:
         logger.info(f"  类型: {article_type}, 受众: {target_audience}, 长度: {target_length}")
         
         # 执行工作流
-        config = {"configurable": {"thread_id": f"blog_{topic}"}}
-        
+        config = self._build_config(initial_state)
+        logger.info(f"[RecursionBudget] limit={config['recursion_limit']}")
+
         try:
             final_state = self.app.invoke(initial_state, config)
             
@@ -1289,7 +1306,8 @@ class BlogGenerator:
         # 102.10 迁移：设置追踪 ID
         initial_state["trace_id"] = str(uuid.uuid4())[:8]
 
-        config = {"configurable": {"thread_id": f"blog_{topic}"}}
+        config = self._build_config(initial_state)
+        logger.info(f"[RecursionBudget] limit={config['recursion_limit']}")
         for event in self.app.stream(initial_state, config):
             for node_name, state in event.items():
                 yield {
