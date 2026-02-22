@@ -10,11 +10,14 @@ import logging
 import os
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Any
 
 from ..prompts import get_prompt_manager
 
 logger = logging.getLogger(__name__)
+
+MAX_WORKERS = int(os.getenv('HUMANIZER_MAX_WORKERS', '4'))
 
 
 def _extract_source_placeholders(text: str) -> set:
@@ -147,9 +150,140 @@ class HumanizerAgent:
                 logger.warning(f"[Humanizer] 替换未命中: '{old[:60]}'")
         return content, applied
 
+    def _process_section(self, idx: int, section: dict, audience: str, total_sections: int) -> dict:
+        """单个 section 的完整处理流程（score -> rewrite(diff) -> apply -> rescore -> retry）
+
+        Returns:
+            {"idx": idx, "section": section, "status": "rewritten"|"skipped",
+             "score_improvement": int, "elapsed": float}
+        """
+        title = section.get('title', f'章节{idx+1}')
+        content = section.get('content', '')
+
+        # 跳过空内容或仅标题的章节
+        stripped = content.strip()
+        if not stripped or stripped.startswith('#') and '\n' not in stripped:
+            logger.info(f"[Humanizer] [{idx+1}/{total_sections}] {title} — 跳过（空内容）")
+            return {"idx": idx, "section": section, "status": "skipped", "score_improvement": 0, "elapsed": 0.0}
+
+        section_start = time.time()
+        original_placeholders = _extract_source_placeholders(content)
+
+        # Step 1: 评分
+        try:
+            score_result = self._score_section(content)
+        except Exception as e:
+            logger.error(f"[Humanizer] [{idx+1}/{total_sections}] {title} — 评分异常: {e}，跳过")
+            return {"idx": idx, "section": section, "status": "skipped", "score_improvement": 0, "elapsed": time.time() - section_start}
+
+        score = score_result.get('score', {})
+        total_score = score.get('total', 0)
+        elapsed = time.time() - section_start
+
+        # 评分 >= 阈值，跳过改写
+        if total_score >= self.skip_threshold:
+            logger.info(
+                f"[Humanizer] [{idx+1}/{total_sections}] {title} — "
+                f"评分 {total_score}/50，跳过改写 ({elapsed:.1f}s)"
+            )
+            section['humanizer_score'] = total_score
+            section['humanizer_skipped'] = True
+            return {"idx": idx, "section": section, "status": "skipped", "score_improvement": 0, "elapsed": elapsed}
+
+        # Step 2: 改写（diff 模式）
+        try:
+            rewrite_result = self._rewrite_section(content, audience)
+        except Exception as e:
+            logger.error(f"[Humanizer] [{idx+1}/{total_sections}] {title} — 改写异常: {e}，使用原始内容")
+            section['humanizer_score'] = total_score
+            section['humanizer_skipped'] = True
+            return {"idx": idx, "section": section, "status": "skipped", "score_improvement": 0, "elapsed": time.time() - section_start}
+
+        replacements = rewrite_result.get('replacements', [])
+        if not replacements or rewrite_result.get('_fallback'):
+            logger.info(f"[Humanizer] [{idx+1}/{total_sections}] {title} — 无需替换或回退，保留原文")
+            section['humanizer_score'] = total_score
+            section['humanizer_skipped'] = True
+            return {"idx": idx, "section": section, "status": "skipped", "score_improvement": 0, "elapsed": time.time() - section_start}
+
+        humanized, applied = self._apply_replacements(content, replacements)
+        if applied == 0:
+            logger.warning(f"[Humanizer] [{idx+1}/{total_sections}] {title} — 所有替换未命中，保留原文")
+            section['humanizer_score'] = total_score
+            section['humanizer_skipped'] = True
+            return {"idx": idx, "section": section, "status": "skipped", "score_improvement": 0, "elapsed": time.time() - section_start}
+
+        # 验证占位符完整性
+        new_placeholders = _extract_source_placeholders(humanized)
+        if original_placeholders and not original_placeholders.issubset(new_placeholders):
+            lost = original_placeholders - new_placeholders
+            logger.error(
+                f"[Humanizer] [{idx+1}/{total_sections}] {title} — "
+                f"改写丢失占位符 {lost}，回退到原始内容"
+            )
+            section['humanizer_score'] = total_score
+            section['humanizer_skipped'] = True
+            section['humanizer_error'] = f"占位符丢失: {lost}"
+            return {"idx": idx, "section": section, "status": "skipped", "score_improvement": 0, "elapsed": time.time() - section_start}
+
+        # 验证字数变化
+        original_len = len(content)
+        new_len = len(humanized)
+        change_ratio = abs(new_len - original_len) / max(original_len, 1)
+        if change_ratio > 0.1:
+            logger.warning(
+                f"[Humanizer] [{idx+1}/{total_sections}] {title} — "
+                f"字数变化 {change_ratio:.0%} 超过 ±10% "
+                f"({original_len} → {new_len})"
+            )
+
+        # 重试逻辑：改写后重新评分，如果仍 < 35 则再改写一次
+        retry_count = 0
+        while retry_count < self.max_retries:
+            try:
+                rescore = self._score_section(humanized)
+                new_score = rescore.get('score', {}).get('total', 0)
+                if new_score >= 35:
+                    total_score = new_score
+                    break
+                retry_count += 1
+                logger.info(
+                    f"[Humanizer] [{idx+1}/{total_sections}] {title} — "
+                    f"改写后评分 {new_score} < 35，重试 ({retry_count}/{self.max_retries})"
+                )
+                retry_result = self._rewrite_section(humanized, audience)
+                retry_replacements = retry_result.get('replacements', [])
+                if retry_replacements:
+                    retry_humanized, retry_applied = self._apply_replacements(humanized, retry_replacements)
+                    if retry_applied > 0:
+                        retry_placeholders = _extract_source_placeholders(retry_humanized)
+                        if not original_placeholders or original_placeholders.issubset(retry_placeholders):
+                            humanized = retry_humanized
+                            total_score = new_score
+            except Exception as e:
+                logger.error(f"[Humanizer] 重试失败: {e}")
+                break
+
+        # 构建改写结果
+        section['content'] = humanized
+        section['humanizer_score_before'] = score.get('total', 0)
+        section['humanizer_score_after'] = total_score
+        section['humanizer_changes'] = [f"{r.get('old', '')[:30]} → {r.get('new', '')[:30]}" for r in replacements[:5]]
+        section['humanizer_skipped'] = False
+        score_improvement = total_score - score.get('total', 0)
+        elapsed = time.time() - section_start
+
+        logger.info(
+            f"[Humanizer] [{idx+1}/{total_sections}] {title} — "
+            f"评分 {score.get('total', 0)} → {total_score}/50, "
+            f"替换 {applied}/{len(replacements)} 处 ({elapsed:.1f}s)"
+        )
+
+        return {"idx": idx, "section": section, "status": "rewritten", "score_improvement": score_improvement, "elapsed": elapsed}
+
     def run(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """
-        执行去 AI 味处理
+        执行去 AI 味处理（并行版本）
 
         Args:
             state: 共享状态
@@ -174,136 +308,33 @@ class HumanizerAgent:
         score_improvements = []
         start_time = time.time()
 
-        for idx, section in enumerate(sections):
-            title = section.get('title', f'章节{idx+1}')
-            content = section.get('content', '')
+        # 并行处理所有 sections
+        with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, total_sections)) as executor:
+            futures = {
+                executor.submit(self._process_section, idx, section, audience, total_sections): idx
+                for idx, section in enumerate(sections)
+            }
 
-            # 跳过空内容或仅标题的章节
-            stripped = content.strip()
-            if not stripped or stripped.startswith('#') and '\n' not in stripped:
-                logger.info(f"[Humanizer] [{idx+1}/{total_sections}] {title} — 跳过（空内容）")
-                skipped_count += 1
-                continue
-
-            section_start = time.time()
-            original_placeholders = _extract_source_placeholders(content)
-
-            # Step 1: 评分
-            try:
-                score_result = self._score_section(content)
-            except Exception as e:
-                logger.error(f"[Humanizer] [{idx+1}/{total_sections}] {title} — 评分异常: {e}，跳过")
-                continue
-
-            score = score_result.get('score', {})
-            total_score = score.get('total', 0)
-            elapsed = time.time() - section_start
-
-            # 评分 >= 阈值，跳过改写
-            if total_score >= self.skip_threshold:
-                logger.info(
-                    f"[Humanizer] [{idx+1}/{total_sections}] {title} — "
-                    f"评分 {total_score}/50，跳过改写 ({elapsed:.1f}s)"
-                )
-                skipped_count += 1
-                section['humanizer_score'] = total_score
-                section['humanizer_skipped'] = True
-                continue
-
-            # Step 2: 改写（diff 模式）
-            try:
-                rewrite_result = self._rewrite_section(content, audience)
-            except Exception as e:
-                logger.error(f"[Humanizer] [{idx+1}/{total_sections}] {title} — 改写异常: {e}，使用原始内容")
-                section['humanizer_score'] = total_score
-                section['humanizer_skipped'] = True
-                skipped_count += 1
-                continue
-
-            replacements = rewrite_result.get('replacements', [])
-            if not replacements or rewrite_result.get('_fallback'):
-                logger.info(f"[Humanizer] [{idx+1}/{total_sections}] {title} — 无需替换或回退，保留原文")
-                section['humanizer_score'] = total_score
-                section['humanizer_skipped'] = True
-                skipped_count += 1
-                continue
-
-            humanized, applied = self._apply_replacements(content, replacements)
-            if applied == 0:
-                logger.warning(f"[Humanizer] [{idx+1}/{total_sections}] {title} — 所有替换未命中，保留原文")
-                section['humanizer_score'] = total_score
-                section['humanizer_skipped'] = True
-                skipped_count += 1
-                continue
-
-            # 验证占位符完整性
-            new_placeholders = _extract_source_placeholders(humanized)
-            if original_placeholders and not original_placeholders.issubset(new_placeholders):
-                lost = original_placeholders - new_placeholders
-                logger.error(
-                    f"[Humanizer] [{idx+1}/{total_sections}] {title} — "
-                    f"改写丢失占位符 {lost}，回退到原始内容"
-                )
-                section['humanizer_score'] = total_score
-                section['humanizer_skipped'] = True
-                section['humanizer_error'] = f"占位符丢失: {lost}"
-                skipped_count += 1
-                continue
-
-            # 验证字数变化
-            original_len = len(content)
-            new_len = len(humanized)
-            change_ratio = abs(new_len - original_len) / max(original_len, 1)
-            if change_ratio > 0.1:
-                logger.warning(
-                    f"[Humanizer] [{idx+1}/{total_sections}] {title} — "
-                    f"字数变化 {change_ratio:.0%} 超过 ±10% "
-                    f"({original_len} → {new_len})"
-                )
-
-            # 重试逻辑：改写后重新评分，如果仍 < 35 则再改写一次
-            retry_count = 0
-            while retry_count < self.max_retries:
+            results = {}
+            for future in as_completed(futures):
+                idx = futures[future]
                 try:
-                    rescore = self._score_section(humanized)
-                    new_score = rescore.get('score', {}).get('total', 0)
-                    if new_score >= 35:
-                        total_score = new_score
-                        break
-                    retry_count += 1
-                    logger.info(
-                        f"[Humanizer] [{idx+1}/{total_sections}] {title} — "
-                        f"改写后评分 {new_score} < 35，重试 ({retry_count}/{self.max_retries})"
-                    )
-                    retry_result = self._rewrite_section(humanized, audience)
-                    retry_replacements = retry_result.get('replacements', [])
-                    if retry_replacements:
-                        retry_humanized, retry_applied = self._apply_replacements(humanized, retry_replacements)
-                        if retry_applied > 0:
-                            # 验证占位符完整性
-                            retry_placeholders = _extract_source_placeholders(retry_humanized)
-                            if not original_placeholders or original_placeholders.issubset(retry_placeholders):
-                                humanized = retry_humanized
-                                total_score = new_score
+                    results[idx] = future.result()
                 except Exception as e:
-                    logger.error(f"[Humanizer] 重试失败: {e}")
-                    break
+                    logger.error(f"[Humanizer] section {idx} 并行执行异常: {e}")
+                    results[idx] = {"idx": idx, "section": sections[idx], "status": "skipped", "score_improvement": 0, "elapsed": 0.0}
 
-            # 应用改写
-            section['content'] = humanized
-            section['humanizer_score_before'] = score.get('total', 0)
-            section['humanizer_score_after'] = total_score
-            section['humanizer_changes'] = [f"{r.get('old', '')[:30]} → {r.get('new', '')[:30]}" for r in replacements[:5]]
-            section['humanizer_skipped'] = False
-            rewritten_count += 1
-            score_improvements.append(total_score - score.get('total', 0))
-            elapsed = time.time() - section_start
-
-            logger.info(
-                f"[Humanizer] [{idx+1}/{total_sections}] {title} — "
-                f"评分 {score.get('total', 0)} → {total_score}/50, "
-                f"替换 {applied}/{len(replacements)} 处 ({elapsed:.1f}s)"
-            )
+        # 按原始顺序回写结果并统计
+        for idx in range(total_sections):
+            r = results.get(idx)
+            if not r:
+                continue
+            sections[idx] = r["section"]
+            if r["status"] == "skipped":
+                skipped_count += 1
+            else:
+                rewritten_count += 1
+                score_improvements.append(r["score_improvement"])
 
         total_elapsed = time.time() - start_time
         avg_improvement = sum(score_improvements) / len(score_improvements) if score_improvements else 0
