@@ -733,6 +733,15 @@ class BlogGenerator:
     def _reviewer_node(self, state: SharedState) -> SharedState:
         """质量审核节点"""
         logger.info("=== Step 7: 质量审核 ===")
+
+        # mini 模式：修订后跳过 R2 审核（revision_count 已达上限时，R2 结果不影响路由）
+        style = self._get_style(state)
+        revision_count = state.get('revision_count', 0)
+        if revision_count >= style.max_revision_rounds:
+            logger.info(f"[Reviewer] 已达最大修订轮数 ({style.max_revision_rounds})，跳过 R2 审核")
+            state['review_approved'] = True
+            return state
+
         state = self.reviewer.run(state)
 
         # 合并一致性检查发现的问题到 review_issues
