@@ -10,7 +10,7 @@ import logging
 import os
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
@@ -125,7 +125,7 @@ class ParallelTaskExecutor:
         results: List[TaskResult],
         timeout: int,
     ):
-        """并行执行"""
+        """并行执行 -- 确保 executor 生命周期安全"""
         workers = min(self.max_workers, len(tasks))
         logger.info(f"并行执行 {len(tasks)} 个任务，使用 {workers} 个线程")
 
@@ -147,14 +147,31 @@ class ParallelTaskExecutor:
                 future = executor.submit(fn, *args, **kwargs)
                 future_to_idx[future] = idx
 
-            # 收集已完成的 future（带超时）
+            # 关键：在 with 块内完成所有 future 收集
             try:
-                done_futures = as_completed(future_to_idx, timeout=timeout)
-                for future in done_futures:
+                for future in as_completed(future_to_idx, timeout=timeout):
                     idx = future_to_idx[future]
-                    self._collect_result(future, results[idx], timeout=0)
+                    try:
+                        results[idx].result = future.result(timeout=0)
+                        results[idx].status = TaskStatus.COMPLETED
+                    except TimeoutError:
+                        results[idx].status = TaskStatus.TIMED_OUT
+                        results[idx].error = "任务超时"
+                        logger.error(f"任务超时: {results[idx].task_name}")
+                    except Exception as e:
+                        results[idx].status = TaskStatus.FAILED
+                        results[idx].error = str(e)
+                        logger.error(f"任务失败: {results[idx].task_name}: {e}")
+                    finally:
+                        results[idx].completed_at = datetime.now()
+                        self._calc_duration(results[idx])
+                        self._emit_event("task_completed", {
+                            "task_id": results[idx].task_id,
+                            "task_name": results[idx].task_name,
+                            "status": results[idx].status.value,
+                        })
             except TimeoutError:
-                # as_completed 超时：标记未完成的任务
+                # as_completed 超时：标记未完成的任务并取消 future
                 for future, idx in future_to_idx.items():
                     if results[idx].status == TaskStatus.RUNNING:
                         results[idx].status = TaskStatus.TIMED_OUT
@@ -162,7 +179,9 @@ class ParallelTaskExecutor:
                         results[idx].completed_at = datetime.now()
                         self._calc_duration(results[idx])
                         logger.error(f"任务超时: {results[idx].task_name}")
+                        future.cancel()  # 取消未完成的 future
 
+        # with 块退出后 executor 已 shutdown，不再引用任何 future
         self._emit_batch_completed(results)
 
     def _execute_serial(
@@ -194,29 +213,6 @@ class ParallelTaskExecutor:
             finally:
                 results[idx].completed_at = datetime.now()
                 self._calc_duration(results[idx])
-
-    def _collect_result(self, future, task_result: TaskResult, timeout: int = 0):
-        """从 future 收集结果"""
-        try:
-            result_value = future.result(timeout=timeout)
-            task_result.status = TaskStatus.COMPLETED
-            task_result.result = result_value
-        except TimeoutError:
-            task_result.status = TaskStatus.TIMED_OUT
-            task_result.error = f"任务超时"
-            logger.error(f"任务超时: {task_result.task_name}")
-        except Exception as e:
-            task_result.status = TaskStatus.FAILED
-            task_result.error = str(e)
-            logger.error(f"任务失败: {task_result.task_name}: {e}")
-        finally:
-            task_result.completed_at = datetime.now()
-            self._calc_duration(task_result)
-            self._emit_event("task_completed", {
-                "task_id": task_result.task_id,
-                "task_name": task_result.task_name,
-                "status": task_result.status.value,
-            })
 
     @staticmethod
     def _calc_duration(task_result: TaskResult):
