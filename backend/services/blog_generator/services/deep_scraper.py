@@ -94,32 +94,64 @@ class DeepScraper:
         self.llm_service = llm_service
         self.top_n = top_n
 
+        # Goal-directed extractor (feature toggle, default off)
+        self._extractor = None
+        if os.environ.get("GOAL_EXTRACTION_ENABLED", "false").lower() == "true":
+            try:
+                from services.blog_generator.services.goal_directed_extractor import GoalDirectedExtractor
+                self._extractor = GoalDirectedExtractor(llm_service=llm_service)
+                logger.info("Goal-directed extraction enabled")
+            except Exception as e:
+                logger.warning(f"GoalDirectedExtractor init failed: {e}")
+
     def scrape_top_n(
         self,
         results: List[Dict],
         topic: str,
         n: int = None,
+        goal: str = None,
     ) -> List[Dict]:
-        """对搜索结果 Top N 进行深度抓取 + LLM 提取（并行）"""
+        """对搜索结果 Top N 进行深度抓取 + LLM 提取（并行）
+
+        Args:
+            results: search results
+            topic: research topic
+            n: max URLs to scrape
+            goal: specific extraction goal (used by GoalDirectedExtractor)
+        """
         n = n or self.top_n
         selected = self._select_urls(results, n)
         if not selected:
             return []
 
         enriched = []
+        effective_goal = goal or f"收集与「{topic}」相关的关键技术信息、核心概念和实践案例"
 
         def _process_one(item: Dict) -> Optional[Dict]:
             url = item.get("url", "")
             full_text = self._scrape_single(url)
             if not full_text:
                 return None
-            extracted = self._extract_info(full_text, topic)
-            return {
-                "url": url,
-                "title": item.get("title", ""),
-                "full_text": full_text,
-                "extracted_info": extracted,
-            }
+
+            if self._extractor:
+                extraction = self._extractor.extract(full_text, effective_goal)
+                return {
+                    "url": url,
+                    "title": item.get("title", ""),
+                    "rational": extraction.rational,
+                    "evidence": extraction.evidence,
+                    "summary": extraction.summary,
+                    "extraction_success": extraction.success,
+                    "full_text_length": len(full_text),
+                }
+            else:
+                extracted = self._extract_info(full_text, topic)
+                return {
+                    "url": url,
+                    "title": item.get("title", ""),
+                    "full_text": full_text,
+                    "extracted_info": extracted,
+                }
 
         with ThreadPoolExecutor(max_workers=min(n, 5)) as executor:
             futures = {executor.submit(_process_one, item): item for item in selected}
