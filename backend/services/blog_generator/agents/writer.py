@@ -232,9 +232,16 @@ class WriterAgent:
             if has_stream:
                 section_title = section_outline.get('title', '')
                 accumulated = ""
+                import time as _time
+                _last_send = [0.0]  # 节流：最少间隔 100ms
+
                 def on_writing_chunk(delta, acc):
                     nonlocal accumulated
                     accumulated = acc
+                    now = _time.time()
+                    if now - _last_send[0] < 0.1:
+                        return  # 节流，跳过
+                    _last_send[0] = now
                     self.task_manager.send_event(self.task_id, 'writing_chunk', {
                         'section_title': section_title,
                         'delta': delta,

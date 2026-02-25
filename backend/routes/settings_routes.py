@@ -228,6 +228,33 @@ def update_settings():
 
         updated.append(key)
 
+    # TEXT_MODEL 变更时，自动重新推断 provider_format 并热更新 LLMService
+    if 'TEXT_MODEL' in updated:
+        try:
+            from services.llm_service import get_llm_service, _infer_provider_format
+            new_model = os.environ.get('TEXT_MODEL', '')
+            inferred = _infer_provider_format({
+                'TEXT_MODEL': new_model,
+                'OPENAI_API_KEY': os.environ.get('OPENAI_API_KEY', ''),
+                'GOOGLE_API_KEY': os.environ.get('GOOGLE_API_KEY', ''),
+            })
+            svc = get_llm_service()
+            if svc and svc.provider_format != inferred:
+                old_format = svc.provider_format
+                svc.provider_format = inferred
+                # 清除缓存的模型实例，下次调用时重建
+                svc._text_chat_model = None
+                for tier_cfg in svc._model_config.values():
+                    tier_cfg['instance'] = None
+                logger.info(f"TEXT_MODEL → {new_model}, provider_format: {old_format} → {inferred}")
+            # 同步更新模型名
+            svc.text_model = new_model
+            for tier_cfg in svc._model_config.values():
+                if tier_cfg['model'] == svc.text_model or not tier_cfg['model']:
+                    tier_cfg['model'] = new_model
+        except Exception as e:
+            logger.warning(f"热更新 LLMService 失败: {e}")
+
     logger.info(f"设置已更新: {updated}")
     if errors:
         logger.warning(f"设置更新错误: {errors}")

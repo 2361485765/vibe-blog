@@ -176,6 +176,9 @@ class ResearcherAgent:
             
             queries = json.loads(response)
             if isinstance(queries, list):
+                # 确保原始 topic 作为第一个 query（防止 LLM 改写主题）
+                if queries and topic.lower() not in queries[0].lower():
+                    queries.insert(0, topic)
                 return queries
             return default_queries
             

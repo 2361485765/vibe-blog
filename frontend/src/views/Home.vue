@@ -495,23 +495,29 @@ const handleGenerate = async () => {
   }
 }
 
-// 流式预览节流（100ms）
-let accumulatedPreview = ''
-let completedSectionsContent = ''  // 已完成章节的累积内容
-let currentSectionTitle = ''       // 当前正在写的章节标题
+// 流式预览节流（100ms）— 按 section 独立累积，支持并行写作
+const sectionContentMap = new Map<string, string>()  // section_title → accumulated content
+let sectionOrder: string[] = []                       // 保持章节出现顺序
 let previewTimer: ReturnType<typeof setTimeout> | null = null
-const throttledUpdatePreview = (content: string) => {
+const rebuildPreview = () => {
+  const parts: string[] = []
+  for (const title of sectionOrder) {
+    const content = sectionContentMap.get(title)
+    if (content) parts.push(content)
+  }
+  return parts.join('\n\n')
+}
+const throttledUpdatePreview = () => {
   if (previewTimer) return
   previewTimer = setTimeout(() => {
-    previewContent.value = content
+    previewContent.value = rebuildPreview()
     previewTimer = null
   }, 100)
 }
 
 const connectSSE = (taskId: string) => {
-  accumulatedPreview = ''
-  completedSectionsContent = ''
-  currentSectionTitle = ''
+  sectionContentMap.clear()
+  sectionOrder = []
   eventSource = api.createTaskStream(taskId)
 
   eventSource.addEventListener('connected', () => {
@@ -561,23 +567,18 @@ const connectSSE = (taskId: string) => {
   // 流式写作内容（两种模式都有）
   eventSource.addEventListener('writing_chunk', (e: MessageEvent) => {
     const d = JSON.parse(e.data)
-    const sectionTitle = d.section_title || ''
-    // 检测章节切换：把之前章节的内容存入已完成缓冲区
-    if (sectionTitle && sectionTitle !== currentSectionTitle) {
-      if (currentSectionTitle) {
-        completedSectionsContent = accumulatedPreview
-      }
-      currentSectionTitle = sectionTitle
+    const sectionTitle = d.section_title || '_default'
+    // 注册新章节（保持出现顺序）
+    if (!sectionContentMap.has(sectionTitle)) {
+      sectionContentMap.set(sectionTitle, '')
+      sectionOrder.push(sectionTitle)
     }
     if (d.accumulated) {
-      accumulatedPreview = completedSectionsContent
-        ? completedSectionsContent + '\n\n' + d.accumulated
-        : d.accumulated
-      throttledUpdatePreview(accumulatedPreview)
+      sectionContentMap.set(sectionTitle, d.accumulated)
     } else if (d.delta) {
-      accumulatedPreview += d.delta
-      throttledUpdatePreview(accumulatedPreview)
+      sectionContentMap.set(sectionTitle, (sectionContentMap.get(sectionTitle) || '') + d.delta)
     }
+    throttledUpdatePreview()
   })
 
   eventSource.addEventListener('result', (e: MessageEvent) => {

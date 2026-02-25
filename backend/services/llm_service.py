@@ -641,6 +641,38 @@ def get_llm_service() -> Optional[LLMService]:
     return _llm_service
 
 
+def _infer_provider_format(config: dict) -> str:
+    """根据实际配置自动推断 provider_format，无需手动设置 AI_PROVIDER_FORMAT"""
+    explicit = config.get('AI_PROVIDER_FORMAT', '').strip()
+
+    # 如果有 Anthropic API Key 且未被注释，且 base_url 不是 OpenAI 兼容的
+    anthropic_key = os.environ.get('ANTHROPIC_API_KEY', '')
+    openai_key = config.get('OPENAI_API_KEY', '')
+    google_key = config.get('GOOGLE_API_KEY', '')
+    text_model = config.get('TEXT_MODEL', '')
+
+    # 模型名自动推断（最可靠）
+    if text_model:
+        if 'claude' in text_model.lower():
+            return 'anthropic'
+        if 'gemini' in text_model.lower():
+            return 'gemini'
+
+    # 有 Anthropic key 且没有 OpenAI key → anthropic
+    if anthropic_key and not openai_key:
+        return 'anthropic'
+
+    # 有 Google key 且没有 OpenAI key → gemini
+    if google_key and not openai_key:
+        return 'gemini'
+
+    # 显式配置作为兜底
+    if explicit:
+        return explicit.lower()
+
+    return 'openai'
+
+
 def init_llm_service(config: dict) -> LLMService:
     """
     从配置初始化 LLM 服务
@@ -653,7 +685,7 @@ def init_llm_service(config: dict) -> LLMService:
     """
     global _llm_service
     _llm_service = LLMService(
-        provider_format=config.get('AI_PROVIDER_FORMAT', 'openai'),
+        provider_format=_infer_provider_format(config),
         openai_api_key=config.get('OPENAI_API_KEY', ''),
         openai_api_base=config.get('OPENAI_API_BASE', ''),
         google_api_key=config.get('GOOGLE_API_KEY', ''),

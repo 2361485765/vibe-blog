@@ -39,16 +39,25 @@ export function useTaskStream() {
   let sectionCount = 0                // 已见章节总数
 
   let eventSource: EventSource | null = null
-  let accumulatedPreview = ''
-  let completedSectionsContent = ''  // 已完成章节的累积内容
-  let currentSectionTitle = ''       // 当前正在写的章节标题
+  const sectionContentMap = new Map<string, string>()  // section_title → accumulated content
+  let sectionOrder: string[] = []                       // 保持章节出现顺序
   let previewTimer: ReturnType<typeof setTimeout> | null = null
 
+  // 重建完整预览
+  const rebuildPreview = () => {
+    const parts: string[] = []
+    for (const title of sectionOrder) {
+      const content = sectionContentMap.get(title)
+      if (content) parts.push(content)
+    }
+    return parts.join('\n\n')
+  }
+
   // 节流更新预览
-  const throttledUpdatePreview = (content: string) => {
+  const throttledUpdatePreview = () => {
     if (previewTimer) return
     previewTimer = setTimeout(() => {
-      previewContent.value = content
+      previewContent.value = rebuildPreview()
       previewTimer = null
     }, 100)
   }
@@ -91,9 +100,8 @@ export function useTaskStream() {
 
   // 连接 SSE
   const connectSSE = (taskId: string, onComplete?: (data: any) => void) => {
-    accumulatedPreview = ''
-    completedSectionsContent = ''
-    currentSectionTitle = ''
+    sectionContentMap.clear()
+    sectionOrder = []
     previewContent.value = ''
     citations.value = []
     completedBlogId.value = ''
@@ -146,26 +154,20 @@ export function useTaskStream() {
 
     es.addEventListener('writing_chunk', (e: MessageEvent) => {
       const d = JSON.parse(e.data)
-      const sectionTitle = d.section_title || ''
-      // 检测章节切换：把之前章节的内容存入已完成缓冲区
-      if (sectionTitle && sectionTitle !== currentSectionTitle) {
-        if (currentSectionTitle) {
-          completedSectionsContent = accumulatedPreview
-        }
-        currentSectionTitle = sectionTitle
+      const sectionTitle = d.section_title || '_default'
+      // 注册新章节（保持出现顺序）
+      if (!sectionContentMap.has(sectionTitle)) {
+        sectionContentMap.set(sectionTitle, '')
+        sectionOrder.push(sectionTitle)
         sectionCount++
         activeSectionIndex.value = sectionCount - 1
       }
       if (d.accumulated) {
-        // accumulated 只是当前章节内容，需要拼接已完成章节
-        accumulatedPreview = completedSectionsContent
-          ? completedSectionsContent + '\n\n' + d.accumulated
-          : d.accumulated
-        throttledUpdatePreview(accumulatedPreview)
+        sectionContentMap.set(sectionTitle, d.accumulated)
       } else if (d.delta) {
-        accumulatedPreview += d.delta
-        throttledUpdatePreview(accumulatedPreview)
+        sectionContentMap.set(sectionTitle, (sectionContentMap.get(sectionTitle) || '') + d.delta)
       }
+      throttledUpdatePreview()
     })
 
     es.addEventListener('result', (e: MessageEvent) => {
@@ -398,9 +400,8 @@ export function useTaskStream() {
     citations.value = []
     completedBlogId.value = ''
     tokenUsage.value = null
-    accumulatedPreview = ''
-    completedSectionsContent = ''
-    currentSectionTitle = ''
+    sectionContentMap.clear()
+    sectionOrder = []
     activeSectionIndex.value = -1
     sectionCount = 0
   }
